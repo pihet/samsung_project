@@ -1,3 +1,4 @@
+# BuyOrWait Main Streamlit Application - 다나와 벤치마킹 반영
 import streamlit as st
 import pandas as pd
 import plotly.express as px
