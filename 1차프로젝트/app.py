@@ -463,15 +463,7 @@ def show_product_detail_dialog(selected):
     for m in mall_prices:
         badge_html = f'<span style="color:#2563EB; font-weight:700; font-size:0.8rem; margin-right:0.4rem;">{m["badge"]}</span>' if m.get("badge") else ""
         price_color = "#2563EB" if m.get("badge") else "#333333"
-        mall_rows_html += f"""
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; font-size: 0.95rem; border-bottom: 1px solid #F3F4F6;">
-            <div style="font-weight: 700; color: #333; width: 140px;">{m['mall']}</div>
-            <div style="flex: 1; text-align: right; margin-right: 1.5rem;">
-                {badge_html}<a href="{m['link']}" target="_blank" style="text-decoration: none; color: {price_color}; font-weight: 800; font-size: 1.05rem;">{m['price']:,}원</a>
-            </div>
-            <div style="color: #888; font-size: 0.85rem; width: 80px; text-align: right;">{m['shipping']}</div>
-        </div>
-        """
+        mall_rows_html += f'<div style="display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; font-size: 0.95rem; border-bottom: 1px solid #F3F4F6;"><div style="font-weight: 700; color: #333; width: 140px;">{m["mall"]}</div><div style="flex: 1; text-align: right; margin-right: 1.5rem;">{badge_html}<a href="{m["link"]}" target="_blank" style="text-decoration: none; color: {price_color}; font-weight: 800; font-size: 1.05rem;">{m["price"]:,}원</a></div><div style="color: #888; font-size: 0.85rem; width: 80px; text-align: right;">{m["shipping"]}</div></div>'
 
     buy_link = mall_prices[0]['link']
 
