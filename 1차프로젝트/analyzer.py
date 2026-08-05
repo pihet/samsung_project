@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+from ml_forecaster import predict_future_prices
 
 def analyze_price_trend(df_history, days=None):
     """
-    상품 가격 이력(DataFrame)을 입력받아 지정 기간(days) 동안의 할인 유형 및 구매 추천 지수를 분석하는 엔진
+    상품 가격 이력(DataFrame)을 입력받아 지정 기간(days) 동안의 할인 유형,
+    머신러닝 시계열 예측(14일) 및 최종 구매 추천 지수를 분석하는 종합 엔진
     """
     if df_history is None or df_history.empty:
         return {
@@ -15,7 +17,8 @@ def analyze_price_trend(df_history, days=None):
             'pattern': '데이터 부족',
             'badge': '데이터 수집 필요',
             'badge_color': 'gray',
-            'recommendation': '가격 데이터 수집이 진행 중입니다. 며칠간 수집 후 다시 확인해 보세요.'
+            'recommendation': '가격 데이터 수집이 진행 중입니다. 며칠간 수집 후 다시 확인해 보세요.',
+            'ml_forecast': None
         }
 
     df = df_history.copy()
@@ -39,12 +42,8 @@ def analyze_price_trend(df_history, days=None):
     # 할인율 (평균가 대비 현재가 절감 비율)
     discount_vs_avg = ((avg_price - current_price) / avg_price * 100) if avg_price > 0 else 0
 
-    # 가격 범위 내 위치 (0 = 최저가, 100 = 최고가)
-    price_range = max_price - min_price
-    if price_range > 0:
-        position_percentile = ((current_price - min_price) / price_range) * 100
-    else:
-        position_percentile = 50.0
+    # 머신러닝 14일 미래 시계열 예측 실행
+    ml_forecast = predict_future_prices(df_history, forecast_days=14)
 
     # 1. 상시 할인 패턴 (가격 변동성 2% 이하)
     if volatility <= 0.02:
@@ -79,6 +78,21 @@ def analyze_price_trend(df_history, days=None):
         discount_score = max(5, int(45 - hike_percent * 2.0))
         recommendation = "평소 평균 판매가보다 높은 시기입니다. 가격이 다시 안정될 때까지 구매를 미루는 것을 추천합니다."
 
+    # ----------------------------------------------------
+    # 머신러닝 시계열 예측 결합 조정 (Future Trend Weighting)
+    # ----------------------------------------------------
+    if ml_forecast:
+        trend = ml_forecast['trend_direction']
+        pct = ml_forecast['trend_change_pct']
+        
+        # 14일 후 더 가격이 하락할 것으로 예상되면 점수를 살짝 낮춰 구매 대기 유도
+        if trend == "하락":
+            discount_score = max(5, discount_score - 8)
+            recommendation += f" [ML 시계열 예측]: 향후 14일간 약 {abs(pct)}% 추가 가격 하락이 예상되어 보류를 추천합니다."
+        elif trend == "상승":
+            discount_score = min(100, discount_score + 5)
+            recommendation += f" [ML 시계열 예측]: 향후 14일간 약 {pct}% 가격 상승이 예상되므로 필요한 경우 빠른 조기 구매를 권장합니다."
+
     return {
         'current_price': current_price,
         'avg_price': int(avg_price),
@@ -88,5 +102,6 @@ def analyze_price_trend(df_history, days=None):
         'pattern': pattern,
         'badge': badge,
         'badge_color': badge_color,
-        'recommendation': recommendation
+        'recommendation': recommendation,
+        'ml_forecast': ml_forecast
     }
