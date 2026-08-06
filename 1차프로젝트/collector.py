@@ -4,15 +4,17 @@ import json
 import random
 import requests
 import hashlib
+import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from database import save_product_and_price, get_price_history, bulk_save_price_history
 
 def search_shopping_products_realtime(query, display=40):
     """
-    실시간 쇼핑 상품 웹 수집 엔진
-    네이버 오픈 API 쇼핑 검색이 공식 종료됨에 따라, 실시간 쇼핑 검색 결과를 파싱하여
-    실제 상품명, 실제 최저가, 실제 상품 이미지 및 링크 데이터를 반환합니다.
+    다나와(Danawa) 실시간 쇼핑 상품 웹 수집 엔진
+    다나와 실시간 검색 결과 HTML을 파싱하여 실제 상품명, 실제 최저가,
+    다나와 pcode 기반 정식 링크(prod.danawa.com/info/?pcode=...),
+    정확한 이미지 및 스펙, 옵션/용량별 실시간 최저가 데이터를 수집합니다.
     """
     if not query or not query.strip():
         return [], "검색어를 입력해 주세요."
@@ -20,16 +22,21 @@ def search_shopping_products_realtime(query, display=40):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8'
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
+        'Referer': 'https://www.danawa.com/'
     }
 
     url = 'https://search.danawa.com/dsearch.php?query=' + urllib.parse.quote(query.strip())
     try:
         res = requests.get(url, headers=headers, timeout=10)
+        res.encoding = 'utf-8'
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             items = []
-            prod_list = soup.select('.prod_item')
+            prod_list = soup.select('.main_prodlist .prod_item, .prod_main_info')
+            
+            seen_pcodes = set()
+
             for i, p in enumerate(prod_list):
                 name_el = p.select_one('.prod_name a')
                 price_el = p.select_one('.price_sect strong')
@@ -37,20 +44,32 @@ def search_shopping_products_realtime(query, display=40):
 
                 if name_el and price_el:
                     title = name_el.text.strip()
+                    orig_link = name_el.get('href', '')
+
+                    # 다나와 pcode 추출 (prod.danawa.com/info/?pcode=...)
+                    pcode_match = re.search(r'pcode=(\d+)', orig_link)
+                    pcode = pcode_match.group(1) if pcode_match else p.get('id', '').replace('productItem', '')
+                    
+                    if pcode and pcode in seen_pcodes:
+                        continue
+                    if pcode:
+                        seen_pcodes.add(pcode)
+
                     price_str = price_el.text.replace(',', '').replace('원', '').strip()
                     if price_str.isdigit():
                         lprice = int(price_str)
                     else:
                         continue
 
-                    # 스펙 정보 파싱 (예: 탄산음료 / 콜라 / 포장형태: 페트 / 제로칼로리)
+                    # 다나와 정식 상품 링크 생성
+                    danawa_link = f"https://prod.danawa.com/info/?pcode={pcode}" if pcode else orig_link
+                    if not danawa_link.startswith('http'):
+                        danawa_link = 'https:' + danawa_link if danawa_link.startswith('//') else 'https://search.danawa.com' + danawa_link
+
+                    # 스펙 정보 파싱
                     spec_el = p.select_one('.spec_list')
-                    spec_text = spec_el.text.strip() if spec_el else f"식품 > {query.strip()}"
-                    
-                    import re
-                    q_match = re.search(r'(\d+\s*개(?:입)?)', spec_text)
-                    if q_match and q_match.group(1) not in title:
-                        title += f" ({q_match.group(1)})"
+                    spec_text = spec_el.text.strip() if spec_el else f"가전/디지털 > {query.strip()}"
+                    spec_tags = [s.strip() for s in spec_text.replace('\n', '').replace('\t', '').split('/') if s.strip()]
 
                     img_url = ""
                     if img_el:
@@ -60,31 +79,78 @@ def search_shopping_products_realtime(query, display=40):
                         if img_url.startswith('//'):
                             img_url = 'https:' + img_url
 
-                    # 정확한 1:1 상품 매칭 구매 링크 생성
-                    enc_exact = urllib.parse.quote(title)
-                    link = f"https://search.shopping.naver.com/search/all?query={enc_exact}"
-                    
-                    prod_hash = hashlib.md5(title.encode('utf-8')).hexdigest()[:10]
-                    product_id = f"real_{prod_hash}_{i}"
+                    product_id = f"dnw_{pcode}" if pcode else f"real_{i}"
 
-                    # 다나와 쇼핑몰별 가격 리스트 1:1 매칭 구조 생성
-                    mall_prices = [
-                        {"mall": "coupang", "badge": "최저가", "price": lprice, "shipping": "3,500원", "link": link},
-                        {"mall": "Gmarket", "badge": "", "price": int(lprice * 1.966), "shipping": "무료배송", "link": f"https://browse.gmarket.co.kr/search?keyword={enc_exact}"},
-                        {"mall": "SSG.COM", "badge": "", "price": int(lprice * 2.091), "shipping": "무료배송", "link": f"https://www.ssg.com/search.ssg?query={enc_exact}"},
-                        {"mall": "emart mall", "badge": "", "price": int(lprice * 2.091), "shipping": "무료배송", "link": f"https://emart.ssg.com/search.ssg?query={enc_exact}"},
-                        {"mall": "신세계몰", "badge": "", "price": int(lprice * 2.091), "shipping": "무료배송", "link": f"https://shinsegaemall.ssg.com/search.ssg?query={enc_exact}"},
-                        {"mall": "11번가", "badge": "", "price": int(lprice * 2.689), "shipping": "무료배송", "link": f"https://search.11st.co.kr/Search.tmall?kwd={enc_exact}"},
-                        {"mall": "AUCTION", "badge": "", "price": int(lprice * 2.718), "shipping": "무료배송", "link": f"https://search.auction.co.kr/search/search.aspx?keyword={enc_exact}"}
-                    ]
+                    # 1. 다나와 옵션/용량별 실시간 최저가 리스트 파싱 (.prod_pricelist li)
+                    mall_prices = []
+                    price_lis = p.select('.prod_pricelist li')
+                    for li in price_lis:
+                        mem_el = li.select_one('.memory_sect .text, .memory_sect, .txt_name')
+                        raw_mem_txt = mem_el.text.strip() if mem_el else ''
+                        opt_name = re.sub(r'^\d+\s*위\s*', '', raw_mem_txt)
+                        opt_name = re.sub(r'\s+', ' ', opt_name).strip()
+                        
+                        prc_el = li.select_one('.price_sect strong, .price_sect a')
+                        prc_str = prc_el.text.replace(',', '').replace('원', '').strip() if prc_el else ''
+                        
+                        a_el = li.select_one('a')
+                        a_href = a_el.get('href') if a_el else ''
+                        sub_pcode_match = re.search(r'pcode=(\d+)', a_href) if a_href else None
+                        sub_pcode = sub_pcode_match.group(1) if sub_pcode_match else pcode
+                        sub_link = f"https://prod.danawa.com/info/?pcode={sub_pcode}" if sub_pcode else danawa_link
+
+                        if prc_str.isdigit():
+                            sp = int(prc_str)
+                            mall_prices.append({
+                                "mall": opt_name if opt_name else "다나와 규격/옵션",
+                                "badge": "",
+                                "price": sp,
+                                "shipping": "무료배송",
+                                "link": sub_link
+                            })
+
+                    # 2. 쇼핑몰 판매처 리스트 파싱 (.deli_price_list li, .price_list li)
+                    if not mall_prices:
+                        m_lis = p.select('.deli_price_list li, .price_list li, .sub_price_sect')
+                        for m in m_lis:
+                            m_img = m.select_one('img')
+                            m_name = m_img.get('alt') if (m_img and m_img.get('alt')) else (m.select_one('.txt_name, .logo').text.strip() if m.select_one('.txt_name, .logo') else '')
+                            m_price_el = m.select_one('.price, .txt_price, strong, .price_sect')
+                            m_price_str = m_price_el.text.replace(',', '').replace('원', '').strip() if m_price_el else ''
+                            m_link_el = m.select_one('a')
+                            m_link = m_link_el.get('href') if m_link_el else danawa_link
+
+                            if m_price_str.isdigit():
+                                mp = int(m_price_str)
+                                mall_prices.append({
+                                    "mall": m_name if m_name else "다나와 판매처",
+                                    "badge": "",
+                                    "price": mp,
+                                    "shipping": "무료배송" if mp == lprice else "3,000원",
+                                    "link": m_link
+                                })
+
+                    # 3. 파싱된 옵션/판매처 정렬 및 실제 절대 최저가(lprice) 갱신
+                    if not mall_prices:
+                        mall_prices = [
+                            {"mall": "다나와 실시간 최저가", "badge": "최저가", "price": lprice, "shipping": "무료배송", "link": danawa_link}
+                        ]
+                    else:
+                        mall_prices = sorted(mall_prices, key=lambda x: x['price'])
+                        for m_item in mall_prices:
+                            m_item['badge'] = ""
+                        mall_prices[0]['badge'] = "최저가"
+                        lprice = mall_prices[0]['price']
 
                     items.append({
                         'product_id': product_id,
+                        'pcode': pcode,
                         'title': title,
                         'category': spec_text,
+                        'spec_tags': spec_tags[:8],
                         'image_url': img_url,
-                        'mall_name': "coupang",
-                        'link': link,
+                        'mall_name': mall_prices[0]['mall'],
+                        'link': danawa_link,
                         'lprice': lprice,
                         'mall_prices': mall_prices
                     })
@@ -94,19 +160,22 @@ def search_shopping_products_realtime(query, display=40):
             if items:
                 return items, None
     except Exception as e:
-        # 단일 Exception 메시지로 리턴 시 앱 구동이 멈추므로 방어코드 추가 (Mock Data 반환)
         mock_items = []
         for i in range(8):
             mock_items.append({
                 'product_id': f"mock_{i}",
                 'title': f"[실시간 수집 지연] {query} 검색 결과 {i+1}",
-                'category': f"가상카테고리 > {query}",
-                'image_url': f"https://via.placeholder.com/200/03C75A/FFFFFF?text=Item+{i+1}",
-                'mall_name': "임시 스토어",
-                'link': "#",
-                'lprice': 10000 * (i + 1)
+                'category': f"디지털/가전 > {query}",
+                'spec_tags': ["인기상품", "스펙확인중"],
+                'image_url': f"https://via.placeholder.com/200/115DCE/FFFFFF?text=Item+{i+1}",
+                'mall_name': "다나와 제휴몰",
+                'link': "https://www.danawa.com",
+                'lprice': 10000 * (i + 1),
+                'mall_prices': [
+                    {"mall": "다나와 제휴몰", "badge": "최저가", "price": 10000 * (i + 1), "shipping": "무료배송", "link": "https://www.danawa.com"}
+                ]
             })
-        return mock_items, f"실시간 검색 서버 응답 지연(Timeout)으로 임시 데이터를 표시합니다. (사유: {str(e)})"
+        return mock_items, f"실시간 검색 서버 응답 지연으로 임시 데이터를 표시합니다. (사유: {str(e)})"
 
     return [], "실시간 쇼핑 상품 검색 결과가 없습니다."
 

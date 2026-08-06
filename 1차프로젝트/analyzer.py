@@ -88,10 +88,10 @@ def analyze_price_trend(df_history, days=None):
         # 14일 후 더 가격이 하락할 것으로 예상되면 점수를 살짝 낮춰 구매 대기 유도
         if trend == "하락":
             discount_score = max(5, discount_score - 8)
-            recommendation += f" [ML 시계열 예측]: 향후 14일간 약 {abs(pct)}% 추가 가격 하락이 예상되어 보류를 추천합니다."
+            recommendation += f"<br/>[예측]: 향후 14일간 약 {abs(pct)}% 추가 가격 하락이 예상되어 보류를 추천합니다."
         elif trend == "상승":
             discount_score = min(100, discount_score + 5)
-            recommendation += f" [ML 시계열 예측]: 향후 14일간 약 {pct}% 가격 상승이 예상되므로 필요한 경우 빠른 조기 구매를 권장합니다."
+            recommendation += f"<br/>[예측]: 향후 14일간 약 {pct}% 가격 상승이 예상되므로 필요한 경우 빠른 조기 구매를 권장합니다."
 
     return {
         'current_price': current_price,
