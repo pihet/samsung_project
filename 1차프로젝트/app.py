@@ -9,10 +9,12 @@ import collector
 import analyzer
 import ml_forecaster
 import config
+import db_manager
 importlib.reload(collector)
 importlib.reload(analyzer)
 importlib.reload(ml_forecaster)
 importlib.reload(config)
+importlib.reload(db_manager)
 from database import init_db, save_product_and_price, get_price_history, get_all_products
 from collector import search_naver_shopping, generate_mock_price_history
 from analyzer import analyze_price_trend
@@ -442,7 +444,6 @@ def show_product_detail_dialog(selected):
 <span style="font-size: 0.9rem; font-weight: 700; color: #64748B; display:block;">실시간 최저가</span>
 <span style="font-size: 2.2rem; font-weight: 900; color: #115DCE;">{lprice:,}원</span>
 </div>
-<a href="{danawa_url}" target="_blank" style="background: #115DCE; color: #FFFFFF; font-size: 1rem; font-weight: 800; padding: 0.8rem 1.6rem; border-radius: 6px; text-decoration: none; box-shadow: 0 4px 10px rgba(17, 93, 206, 0.25);">최저가 구매하러가기</a>
 </div>
 <div style="font-size: 1rem; font-weight: 800; color: #0F172A; margin-bottom: 0.6rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.4rem;">
 쇼핑몰별 실시간 최저가 비교
@@ -450,6 +451,31 @@ def show_product_detail_dialog(selected):
 <div style="display: flex; flex-direction: column; gap: 0.2rem;">
 {mall_rows_html}
 </div>""", unsafe_allow_html=True)
+
+    col_btn_fav, col_btn_buy = st.columns([1, 1])
+    current_user = st.session_state.get('user')
+    p_id = selected['product_id']
+    db_p = st.session_state.get('db_pass', 'postgres')
+    is_fav = db_manager.is_favorite(current_user['user_id'], p_id, db_pass=db_p) if current_user else False
+
+    with col_btn_fav:
+        if is_fav:
+            if st.button("찜 해제", key=f"fav_btn_dlg_{p_id}", use_container_width=True):
+                db_manager.remove_favorite(current_user['user_id'], p_id, db_pass=db_p)
+                st.toast("찜 목록에서 삭제되었습니다.")
+                st.rerun()
+        else:
+            if st.button("찜하기 (목표가 알림)", key=f"fav_btn_dlg_{p_id}", type="primary", use_container_width=True):
+                if not current_user:
+                    st.session_state['show_auth_modal'] = True
+                    st.rerun()
+                else:
+                    db_manager.add_favorite(current_user['user_id'], selected, db_pass=db_p)
+                    st.toast("찜 목록에 추가되었습니다.")
+                    st.rerun()
+
+    with col_btn_buy:
+        st.markdown(f'<a href="{danawa_url}" target="_blank" style="display:block; text-align:center; background: #115DCE; color: #FFFFFF; font-size: 0.95rem; font-weight: 800; padding: 0.55rem 1rem; border-radius: 6px; text-decoration: none; box-shadow: 0 4px 10px rgba(17, 93, 206, 0.25); margin-bottom: 1rem;">최저가 구매하러가기</a>', unsafe_allow_html=True)
 
     # AI 구매 추천 분석 카드
     st.markdown(f"""
@@ -559,17 +585,103 @@ def show_product_detail_dialog(selected):
     st.plotly_chart(fig, use_container_width=True)
 
 
-# GNB (BuyOrWait 헤더)
-st.markdown("""
-    <div class="dnw-header">
-        <div class="dnw-logo-wrap">
-            <a href="/" target="_self" style="text-decoration: none;">
-                <div class="dnw-logo">BuyOrWait</div>
-            </a>
-            <div class="dnw-logo-sub">| 실시간 최저가 & AI 가격 분석기</div>
+# ============================================================
+# 사이드바 PostgreSQL DB 접속 비밀번호 설정 (DBeaver 연동)
+# ============================================================
+with st.sidebar:
+    st.markdown("<h4 style='color:#0F172A; font-weight:800; margin-bottom:0.2rem;'>PostgreSQL DB 설정</h4>", unsafe_allow_html=True)
+    st.caption("DBeaver / PostgreSQL 접속 비밀번호를 입력해 주세요.")
+    
+    current_db_pass = st.session_state.get('db_pass', '1111')
+    input_db_pass = st.text_input("DB 비밀번호", value=current_db_pass, type="password", key="sidebar_db_pass_input")
+    st.session_state['db_pass'] = input_db_pass
+    
+    if st.button("DB 연결 테스트", key="btn_test_db", use_container_width=True):
+        is_ok, msg = db_manager.test_db_connection(password=input_db_pass)
+        if is_ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+
+# ============================================================
+# 회원 로그인 / 회원가입 인증 모달 (st.dialog)
+# ============================================================
+if st.session_state.get('show_auth_modal'):
+    st.session_state['show_auth_modal'] = False  # 모달 오픈 시 1회성 플래그 즉시소진 (반복 팝업 방지)
+    
+    @st.dialog("BuyOrWait 회원 서비스")
+    def render_auth_dialog():
+        tab_login, tab_signup = st.tabs(["로그인", "회원가입"])
+        db_p = st.session_state.get('db_pass', 'postgres')
+        
+        with tab_login:
+            st.markdown("<div style='font-size:0.9rem; color:#64748B; margin-bottom:0.8rem;'>가입하신 이메일과 비밀번호를 입력해 주세요.</div>", unsafe_allow_html=True)
+            login_email = st.text_input("이메일", key="login_email_input", placeholder="example@email.com")
+            login_pw = st.text_input("비밀번호", type="password", key="login_pw_input")
+            
+            if st.button("로그인하기", type="primary", use_container_width=True, key="btn_do_login"):
+                if not login_email or not login_pw:
+                    st.error("이메일과 비밀번호를 모두 입력해 주세요.")
+                else:
+                    success, res = db_manager.login_user(login_email, login_pw, db_pass=db_p)
+                    if success:
+                        st.session_state['user'] = res
+                        st.success(f"{res['nickname']}님 환영합니다!")
+                        st.rerun()
+                    else:
+                        st.error(res)
+                        st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
+
+        with tab_signup:
+            st.markdown("<div style='font-size:0.9rem; color:#64748B; margin-bottom:0.8rem;'>1초 만에 간편 회원가입 후 찜 목록 및 알림을 받아보세요.</div>", unsafe_allow_html=True)
+            signup_email = st.text_input("이메일 주소", key="signup_email_input", placeholder="example@email.com")
+            signup_nick = st.text_input("닉네임", key="signup_nick_input", placeholder="홍길동")
+            signup_pw = st.text_input("비밀번호", type="password", key="signup_pw_input")
+            signup_pw_confirm = st.text_input("비밀번호 확인", type="password", key="signup_pw_confirm_input")
+            
+            if st.button("회원가입 완료", type="primary", use_container_width=True, key="btn_do_signup"):
+                if not signup_email or not signup_nick or not signup_pw:
+                    st.error("모든 항목을 입력해 주세요.")
+                elif signup_pw != signup_pw_confirm:
+                    st.error("비밀번호 확인이 일치하지 않습니다.")
+                else:
+                    success, res = db_manager.register_user(signup_email, signup_pw, signup_nick, db_pass=db_p)
+                    if success:
+                        st.session_state['user'] = res
+                        st.success(f"{res['nickname']}님 회원가입이 완료되었습니다!")
+                        st.rerun()
+                    else:
+                        st.error(res)
+                        st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
+
+    render_auth_dialog()
+
+# GNB (BuyOrWait 헤더 + 우측 회원 서비스 컨트롤)
+col_logo, col_auth = st.columns([3.8, 1.2])
+
+with col_logo:
+    st.markdown("""
+        <div class="dnw-header">
+            <div class="dnw-logo-wrap">
+                <a href="/" target="_self" style="text-decoration: none;">
+                    <div class="dnw-logo">BuyOrWait</div>
+                </a>
+                <div class="dnw-logo-sub">| 실시간 최저가 & AI 가격 분석기</div>
+            </div>
         </div>
-    </div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+
+with col_auth:
+    current_user = st.session_state.get('user')
+    if current_user:
+        st.markdown(f"<div style='font-size:0.88rem; color:#0F172A; font-weight:700; text-align:right; padding-top:0.4rem;'><b>{current_user['nickname']}님</b></div>", unsafe_allow_html=True)
+        if st.button("로그아웃", key="btn_logout", use_container_width=True):
+            del st.session_state['user']
+            st.rerun()
+    else:
+        if st.button("로그인 / 회원가입", key="btn_open_auth", use_container_width=True, type="primary"):
+            st.session_state['show_auth_modal'] = True
+            st.rerun()
 
 # 탭 Navigation
 tab1, tab2, tab3 = st.tabs(["상품검색", "찜한 상품 목록", "가격 추세 비교"])
@@ -625,7 +737,7 @@ with tab1:
         if not items and not st.session_state.get('search_error'):
             st.info("검색 결과가 없습니다.")
         elif items:
-            col_cnt, col_sort, col_spacer = st.columns([0.10, 0.55, 0.35], gap="small")
+            col_cnt, col_sort, col_spacer = st.columns([0.11, 0.59, 0.30], gap="small")
             total_items = len(items)
             items_per_page = 8
             total_pages = (total_items + items_per_page - 1) // items_per_page
@@ -635,7 +747,7 @@ with tab1:
             current_page = st.session_state['current_page']
 
             with col_cnt:
-                st.markdown(f"<div style='font-size:1.02rem; color:#0F172A; font-weight:800; display:flex; align-items:center; height:100%; min-height:38px;'>검색 결과 <b>{total_items}</b>개 <span style='font-size:0.85rem; color:#64748B; font-weight:600; margin-left:0.2rem;'>({current_page} / {total_pages} 페이지)</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:1.02rem; color:#0F172A; font-weight:800; display:flex; align-items:center; height:100%; min-height:38px; white-space:nowrap;'>검색 결과 <b>{total_items}</b>개 <span style='font-size:0.85rem; color:#64748B; font-weight:600; margin-left:0.25rem; white-space:nowrap;'>({current_page} / {total_pages} 페이지)</span></div>", unsafe_allow_html=True)
 
             with col_sort:
                 sort_option = st.radio("정렬 기준", ["인기순", "낮은가격순", "높은가격순", "정확도순"], horizontal=True, label_visibility="collapsed", key="search_sort_option")
@@ -722,12 +834,34 @@ with tab1:
         show_product_detail_dialog(st.session_state['selected_product'])
 
 with tab2:
-    st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>찜한 상품 및 수집 데이터 목록</h4>", unsafe_allow_html=True)
-    df_products = get_all_products()
-    if not df_products.empty:
-        st.dataframe(df_products, use_container_width=True)
+    st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>찜한 상품 목록 (PostgreSQL 연동)</h4>", unsafe_allow_html=True)
+    
+    current_user = st.session_state.get('user')
+    if not current_user:
+        st.markdown("""
+            <div style="background:#F0F7FF; border:1px solid #BAE6FD; border-radius:10px; padding:2.2rem 1.5rem; text-align:center; margin:1rem 0;">
+                <h3 style="color:#0F172A; font-size:1.2rem; font-weight:800; margin-bottom:0.5rem;">회원 전용 찜 서비스</h3>
+                <p style="color:#64748B; font-size:0.92rem; margin-bottom:1.4rem; line-height:1.5;">
+                    로그인하시면 관심 있는 상품을 나만의 찜 목록에 저장하고<br>
+                    <b>목표 가격 하락 시 실시간 알림 서비스</b>를 이용하실 수 있습니다.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+        col_m1, col_m2, col_m3 = st.columns([1, 1.2, 1])
+        with col_m2:
+            if st.button("로그인 / 회원가입", type="primary", key="tab2_login_btn", use_container_width=True):
+                st.session_state['show_auth_modal'] = True
+                st.rerun()
     else:
-        st.info("저장된 상품이 없습니다. 검색 후 [가격 추세 분석]을 실행해 보세요.")
+        db_p = st.session_state.get('db_pass', 'postgres')
+        fav_items = db_manager.get_user_favorites(current_user['user_id'], db_pass=db_p)
+        if fav_items:
+            df_fav = pd.DataFrame(fav_items)
+            df_fav_display = df_fav[['product_id', 'title', 'lprice', 'target_price', 'alert_enabled', 'favorited_at']].copy()
+            df_fav_display.columns = ['상품 PCODE', '상품명', '현재 최저가(원)', '목표 알림가(원)', '알림 수신', '찜 등록일시']
+            st.dataframe(df_fav_display, use_container_width=True)
+        else:
+            st.info(f"{current_user['nickname']}님의 찜한 상품이 아직 없습니다. 상품 검색 후 관심 상품을 추가해 보세요!")
 
 with tab3:
     st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>상품 가격 추세 비교</h4>", unsafe_allow_html=True)
