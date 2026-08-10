@@ -297,3 +297,27 @@ def generate_mock_price_history(product_id, base_price, days=1095, pattern="auto
         history_records=records
     )
     random.seed()  # 시드 초기화
+
+from concurrent.futures import ThreadPoolExecutor
+
+def fetch_single_trend_kw(kw):
+    try:
+        items, _ = search_shopping_products_realtime(kw, display=1)
+        if items and len(items) > 0:
+            item = items[0]
+            item['query'] = kw
+            return item
+    except Exception as e:
+        print(f"[collector.py] trend product fetch error for {kw}: {e}")
+    return None
+
+def get_danawa_popular_trend_products():
+    """
+    다나와(Danawa) 실시간 급상승 검색어 Top 4 (ddr5 16gb, 9800x3d, 제습기, 닌텐도 스위치 2)의
+    실시간 1위 최저가 상품 및 정식 이미지/링크를 병렬 스레딩(ThreadPoolExecutor)으로 반환합니다.
+    """
+    popular_keywords = ["ddr5 16gb", "9800x3d", "제습기", "닌텐도 스위치 2"]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(fetch_single_trend_kw, popular_keywords))
+        
+    return [r for r in results if r is not None]

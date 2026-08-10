@@ -426,3 +426,33 @@ def get_upcoming_sales_events(db_pass=None):
         return []
     finally:
         conn.close()
+
+def get_top_trend_products(limit=4, db_pass=None):
+    """PostgreSQL DB에서 실제 유효한 이미지를 가진 최근 수집/인기 상품 N개 조회"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return []
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT p.product_id, p.title, p.category, p.image_url, p.mall_name, p.link,
+                       COALESCE((
+                           SELECT price FROM price_history ph 
+                           WHERE ph.product_id = p.product_id 
+                           ORDER BY collected_at DESC LIMIT 1
+                       ), 0) as lprice
+                FROM products p
+                WHERE p.image_url IS NOT NULL 
+                  AND p.image_url != ''
+                  AND p.image_url LIKE 'http%%'
+                ORDER BY p.updated_at DESC
+                LIMIT %s;
+            """, (limit,))
+            rows = cur.fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[get_top_trend_products error]: {e}")
+        return []
+    finally:
+        conn.close()

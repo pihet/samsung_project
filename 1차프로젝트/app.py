@@ -19,6 +19,9 @@ from database import init_db, save_product_and_price, get_price_history, get_all
 from collector import search_naver_shopping, generate_mock_price_history
 from analyzer import analyze_price_trend
 
+def get_cached_danawa_popular_trend_products():
+    return collector.get_danawa_popular_trend_products()
+
 # Streamlit 페이지 설정
 st.set_page_config(
     page_title="BuyOrWait - 실시간 최저가 & AI 가격 분석기",
@@ -1030,6 +1033,123 @@ with tab1:
                 if st.button("다음 >", disabled=(current_page >= total_pages), use_container_width=True):
                     st.session_state['current_page'] += 1
                     st.rerun()
+    else:
+        # 랜딩 페이지: 상품 전체 카테고리 (11) + 실시간 급상승 대표 상품 Top 4
+        full_danawa_categories = {
+            "지금 필요한 여름템": {
+                "2026년형 필수가전": ["LG 퓨리케어 에어컨 2026", "창문형 에어컨 Pro 2026", "삼성 비스포크 제습기 2026", "BLDC 저소음 써큘레이터", "LG 퓨리케어 제습기 20L", "파나소닉 저소음 선풍기", "신일 타워형 선풍기 2026", "삼성 비스포크 무풍 에어컨"],
+                "2026년형 올인원 가전세트": ["LG 올인원 세탁건조기 Pro", "삼성 비스포크 AI 세탁건조기", "로보락 S8 MaxV Ultra", "다이슨 V15 무선청소기", "삼성 비스포크 식기세척기", "LG 디오스 오브제 김치냉장고", "쿠쿠 IH 압력밥솥 6인용", "SK매직 식기세척기 12인용"],
+                "2026년형 트렌드 음료": ["코카콜라 제로 500ml", "스프라이트 500ml", "빅토리아 탄산수 500ml", "삼다수 2L 6병 세트", "칠성사이다 제로 355ml", "몬스터 에너지 355ml", "웰치스 제로 포도 355ml", "닥터페퍼 제로 355ml"]
+            },
+            "가전 · TV": {
+                "2026년형 TV/영상": ["LG 올레드 evo G4 77인치", "삼성 Neo QLED 8K 85인치", "LG Mini RGB TV 65인치", "4K UHD 빔프로젝터", "삼성 스마트 모니터 M8 32인치", "LG 시네빔 라제닉스 4K", "삼성 더 프레임 TV 65인치", "소니 브라비아 XR 4K TV"],
+                "2026년형 생활/세탁가전": ["LG 올인원 세탁건조기 Pro", "삼성 비스포크 AI 드럼세탁기", "로보락 S8 MaxV Ultra", "다이슨 V15 무선청소기", "LG 코드제로 A9S 무선청소기", "삼성 비스포크 제트 청소기", "샤오미 자동먼지비움 청소기", "에코백스 디봇 X2 옴니"],
+                "2026년형 주방/냉장고": ["LG 디오스 오브제 냉장고 870L", "삼성 비스포크 AI 김치냉장고", "빌트인 식기세척기 14인용", "비스포크 AI 인덕션 2026", "쿠쿠 6인용 IH 압력밥솥", "발뮤다 더 토스터 3세대", "필립스 에어프라이어 XXL", "휴롬 즙마스터 착즙기"]
+            },
+            "컴퓨터 · 노트북 · 조립PC": {
+                "2026년 최신형 프리미엄 노트북": ["삼성 갤럭시북5 Pro 360", "LG 그램 Pro 17 (2026)", "맥북프로 M4 Max 16형", "ASUS ROG 제피러스 G16", "레노버 리전 Pro 7i", "애플 맥북에어 M4 15형", "HP 오멘 16 게이밍 2026", "델 엑스피에스 16 (2026)"],
+                "2026년 차세대 PC부품": ["인텔 Core 울트라 9 285K", "AMD 라이젠 9 9950X3D", "NVIDIA RTX 5090 32GB", "NVIDIA RTX 5080 16GB", "DDR5 64GB 7200MHz", "PCIe 5.0 4TB NVMe SSD", "ASUS ROG MAXIMUS 메인보드", "시소닉 1200W 파워서플라이"],
+                "2026년 하이엔드 디스플레이": ["LG 울트라기어 OLED 4K", "삼성 오디세이 OLED G9", "32인치 4K 144Hz IPS 모니터", "알파스캔 AOC 27인치 QHD", "BENQ 조위 240Hz 모니터", "ASUS ROG SWIFT 360Hz", "한성 34인치 커브드 WQHD", "크로스오버 4K HDR 모니터"]
+            },
+            "태블릿 · 모바일 · 디카": {
+                "2026년 최신 플래그십 스마트폰": ["갤럭시 S26 울트라 512G", "삼성 갤럭시 Z 폴드8 / Z 플립8", "아이폰 17 프로 맥스 512G", "애플 아이폰 17 프로", "자급제 5G 스마트폰 2026", "삼성 갤럭시 S26+ 256GB", "애플 아이폰 17 256GB", "샤오미 14 Pro 5G"],
+                "2026년 최신 태블릿": ["갤럭시탭 S11 울트라 5G", "아이패드 프로 M4 13형", "애플 아이패드 에어 7세대", "삼성 갤럭시탭 S9 FE", "레노버 Y700 게이밍 태블릿", "애플 아이패드 11세대", "삼성 갤럭시탭 A9+", "샤오미 패드 6 Pro"],
+                "2026년 스마트워치/디카": ["갤럭시워치9 울트라 LTE", "애플워치 울트라 3 49mm", "소니 A7M5 미러리스 카메라", "고프로 히어로13 4K", "캐논 EOS R6 Mark II", "애플워치 시리즈 10", "삼성 갤럭시워치7 44mm", "DJI 포켓 3 핸드헬드"]
+            },
+            "스포츠 · 골프": {
+                "2026년 최신 골프용품": ["테일러메이드 2026 드라이버", "보이스캐디 2026 거리측정기", "타이틀리스트 Pro V1 2026", "캘러웨이 2026 아이언세트", "핑 G430 MAX 드라이버", "풋조이 2026 골프화", "골프버디 레이저 거리측정기", "오디세이 퍼터 2026"],
+                "2026년 캠핑/아웃도어": ["스노우피크 2026 랜드락 텐트", "헬리녹스 체어 원 Pro", "대용량 파워뱅크 2000W", "크레모아 LED 캠핑 렌턴", "코베아 3웨이 올인원 버너", "파세코 캠핑 난로 2026", "스탠리 쿨러 아이스박스", "네이처하이크 에어텐트"]
+            },
+            "자동차 · 용품 · 공구": {
+                "2026년 최신 블랙박스/차량": ["아이나비 QXD1 4K 블랙박스", "파인뷰 2채널 4K 블랙박스", "순성 카시트 (2026)", "불스원샷 70000 엔진세정제", "메이튼 차량용 거치대", "훠링 세차용품 풀세트", "카템 차량용 공기청정기", "아이나비 에어비타 워셔액"],
+                "2026년 프리미엄 전동공구": ["디월트 20V MAX 전동드릴", "보쉬 18V 프로 콤보세트", "마키타 충전 공구세트", "아임삭 18V 임팩 드라이버", "밀워키 M18 충전 공구", "계양 18V 충전 드라이버", "스탠레이 레이저 수평기", "밀워키 툴박스 캐리어"]
+            },
+            "가구 · 조명": {
+                "2026년 스마트 가구": ["시디즈 T50 헤드레스트 의자", "데스커 모션데스크 Pro", "템퍼 모션베드 퀸 (2026)", "듀오백 2026 에어체어", "한샘 샘책장 5단", "일룸 모션베드 싱글", "에이스침대 퀸사이즈", "퍼시스 리클라이너 소파"],
+                "2026년 인테리어/조명": ["필립스 휴 스마트 조명 세트", "LED 거실등 150W (2026)", "이케아 장스탠드 조명", "아르떼미데 네시노 조명", "스피드랙 앵글 선반", "마켓비 서랍장 6단", "모던하우스 커튼 세트", "라인프렌즈 캐릭터 무드등"]
+            },
+            "식품 · 유아 · 완구": {
+                "2026년 인기 탄산/음료": ["코카콜라 제로 500ml", "스프라이트 500ml", "칠성사이다 제로 355ml", "몬스터 에너지 355ml", "빅토리아 탄산수 500ml", "삼다수 2L 6병 세트", "나랑드사이다 제로 355ml", "환타 제로 오렌지 355ml"],
+                "2026년 가공/자취식품": ["햇반 210g 24개 세트", "신라면 20봉 세트", "단백질 쉐이크 프로틴 2026", "동원참치 135g 12캔", "비비고 왕교자 만두 1kg", "스팸 클래식 200g 10캔", "오뚜기 3분 카레 10개", "너구리 라면 20봉 세트"]
+            },
+            "생활 · 주방 · 건강": {
+                "2026년 건강/위생가전": ["바디프랜드 파라오 안마의자", "체중계 인바디 Dial H20", "세라젬 V7 메디컬 (2026)", "오므론 자동혈압계 2026", "브라운 체온계 6520", "코웨이 얼음정수기 2026", "청호나이스 정수기", "쿠쿠 얼음정수기"]
+            },
+            "패션 · 잡화 · 뷰티": {
+                "2026년 뷰티/의류": ["다이슨 에어랩 멀티 스토어", "나이키 에어맥스 2026 신상", "샘소나이트 28인치 캐리어", "아디다스 러닝화 2026", "뉴발란스 993 운동화", "설화수 자음 2종 세트", "에스티로더 갈색병 에센스", "샤넬 샹스 향수 50ml"]
+            },
+            "반려동물 · 취미 · 사무": {
+                "2026년 반려동물 인기품": ["로얄캐닌 사료 10kg", "벤토나이트 고양이 모래 12kg", "반려동물 자동급식기 Pro", "강아지 펫드라이룸 2026", "페스룸 펫 샴푸 500ml", "두부모래 7L 4개", "고양이 캣타워 대형", "강아지 배변패드 100매"]
+            }
+        }
+
+        st.markdown("""
+            <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:10px; padding:1.2rem 1.4rem; margin-bottom:1.5rem; box-shadow:0 2px 8px rgba(0,0,0,0.03);">
+        """, unsafe_allow_html=True)
+
+        c_m1, c_m2 = st.columns([0.75, 3.25], gap="small")
+        with c_m1:
+            st.markdown("<div style='font-size:0.92rem; font-weight:900; color:#115DCE; margin-bottom:0.5rem; border-bottom:2px solid #115DCE; padding-bottom:0.4rem;'>상품 전체 카테고리 (11)</div>", unsafe_allow_html=True)
+            sel_main_cat = st.radio("전체 카테고리 대분류", list(full_danawa_categories.keys()), label_visibility="collapsed", key="mega_full_cat_radio")
+
+        with c_m2:
+            st.markdown(f"""
+                <div style="background:#115DCE; color:#FFFFFF; font-weight:900; font-size:0.98rem; padding:0.6rem 1rem; border-radius:6px; margin-bottom:0.8rem; display:flex; align-items:center; justify-content:space-between;">
+                    <span>{sel_main_cat} > 세부 카테고리 목록</span>
+                    <span style="font-size:0.8rem; font-weight:600; background:rgba(255,255,255,0.2); padding:0.2rem 0.5rem; border-radius:4px;">원클릭 바로 분석</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+            sub_dict = full_danawa_categories[sel_main_cat]
+            for grp_name, item_list in sub_dict.items():
+                st.markdown(f"<div class='dnw-mega-group-title'>{grp_name}</div>", unsafe_allow_html=True)
+                item_cols = st.columns(4)
+                for i_idx, item_name in enumerate(item_list):
+                    with item_cols[i_idx % 4]:
+                        if st.button(f"▪ {item_name}", key=f"btn_full_m_{sel_main_cat}_{grp_name}_{item_name}", use_container_width=True):
+                            st.session_state['selected_quick_query'] = item_name
+                            st.rerun()
+                st.markdown("<div style='margin-bottom:0.8rem;'></div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # 2단: 실시간 급상승 대표 상품 4종 카드
+        st.markdown("""
+            <div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-bottom:1rem; display:flex; align-items:center;">
+                <span>실시간 급상승 대표 상품 Top 4</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        pop_items = get_cached_danawa_popular_trend_products()
+        if pop_items:
+            pop_cols = st.columns(4)
+            for p_idx, p_item in enumerate(pop_items[:4]):
+                with pop_cols[p_idx]:
+                    img_src = p_item['image_url'] if p_item['image_url'] else "https://via.placeholder.com/200/115DCE/FFFFFF?text=Danawa"
+                    clean_title = analyzer.clean_product_name(p_item['title'])
+                    eff_p, tot_sav, _, _ = analyzer.calculate_effective_price(p_item['lprice'])
+                    
+                    st.markdown(f"""
+                        <div class="dnw-card" style="background-color: #FFFFFF !important; opacity: 1.0 !important; filter: none !important;">
+                            <div class="dnw-img-box">
+                                <img src="{img_src}" />
+                            </div>
+                            <div class="dnw-info-box">
+                                <div class="dnw-title">{clean_title}</div>
+                                <div class="dnw-price-box">
+                                    <span class="dnw-badge-min">최저가</span>
+                                    <div class="dnw-price-val"><b>{p_item['lprice']:,}</b>원</div>
+                                </div>
+                                <div style="font-size:0.75rem; color:#1E40AF; background:#EFF6FF; border:1px solid #BFDBFE; border-radius:4px; padding:0.15rem 0.4rem; margin-top:0.25rem; font-weight:700;">
+                                    체감가 {eff_p:,}원 <span style="font-size:0.7rem; color:#3B82F6;">(-{tot_sav:,}원)</span>
+                                </div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("가격 추세 분석", key=f"btn_pop_trend_{p_item['product_id']}_{p_idx}", use_container_width=True):
+                        st.session_state['selected_product'] = p_item
+                        st.session_state['open_dialog'] = True
+                        st.rerun()
 
     if st.session_state.get('open_dialog') and 'selected_product' in st.session_state:
         st.session_state['open_dialog'] = False
