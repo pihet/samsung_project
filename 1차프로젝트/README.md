@@ -12,7 +12,8 @@
 - **스마트 단위/용량당 단가 계산**: 용량 및 수량(예: 500ml, 12개, 100g)을 자동 감지하여 1개당/100g당 단가 산출.
 - **제조사명 자동 정제**: 검색 결과 및 추천 목록에서 브랜드/제조사명을 정제하여 순수 상품명만 직관적으로 표시.
 
-### 2. 🔐 PostgreSQL DB 연동 및 회원 서비스 (`db_manager.py`)
+### 2. 🔐 PostgreSQL DB 완전 통합 및 회원 서비스 (`db_manager.py` & `database.py`)
+- **PostgreSQL 100% 통합 구축**: SQLite3 의존성을 완전 제거하고 `buyorwait_db`로 5개 전체 테이블 및 고속 인덱스 일괄 통합.
 - **보안 회원가입/로그인 모달**: `bcrypt` 단방향 해시 암호화를 적용한 안전한 사용자 인증.
 - **회원 전용 찜하기 & 목표가 알림**: 관심 상품 찜 목록 DB 저장, 목표가 설정 및 알림 수신 상태 관리.
 
@@ -40,7 +41,7 @@
 | :--- | :--- |
 | **Frontend / UI** | Streamlit, Vanilla CSS (Danawa Style System), Plotly Express & Graph Objects |
 | **Backend / Analytics** | Python 3.11, Pandas, NumPy, Statsmodels (Holt), Scikit-Learn (Ridge) |
-| **Database & Auth** | PostgreSQL (`buyorwait_db`), SQLite (`price_tracker.db`), psycopg2, bcrypt |
+| **Database & Auth** | PostgreSQL (`buyorwait_db` 100% 통합), psycopg2, bcrypt |
 | **Data Collection** | Naver Shopping Open API, Requests, BeautifulSoup4, Regex Parser |
 
 ---
@@ -53,10 +54,9 @@
 ├── collector.py         # 실시간 상품 수집 및 규격/단가 파서
 ├── analyzer.py          # AI 가격 분석, 체감가 계산기 & AI 가성비 대체 상품 추천 엔진
 ├── ml_forecaster.py     # Holt + Ridge + 요일계절성 + 세일이벤트 연동 14일 예측 ML 엔진
-├── db_manager.py        # PostgreSQL 데이터베이스 관리자 (회원인증, 찜목록, 세일캘린더)
-├── database.py          # 로컬 일자별 가격 이력(SQLite) 데이터 관리자
+├── db_manager.py        # PostgreSQL 회원인증, 찜목록, 세일캘린더 DB 관리자
+├── database.py          # PostgreSQL 상품 및 365~1095일 가격 이력 고속 DB 관리자
 ├── config.py            # API 키 및 환경 변수 설정 로더
-├── price_tracker.db     # 일자별 가격 이력 시계열 SQLite DB
 ├── requirements.txt     # 파이썬 라이브러리 의존성 목록
 ├── .env.example         # API 키 환경변수 템플릿 파일
 └── README.md            # 프로젝트 안내 및 아키텍처 문서
@@ -64,7 +64,7 @@
 
 ---
 
-## 🗄️ PostgreSQL 데이터베이스 테이블 구조
+## 🗄️ PostgreSQL 데이터베이스 5개 테이블 스키마 (`buyorwait_db`)
 
 ### 1. `users` (회원 정보)
 ```sql
@@ -106,6 +106,31 @@ CREATE TABLE shopping_sales_events (
 );
 ```
 
+### 4. `products` (상품 마스터 정보)
+```sql
+CREATE TABLE products (
+    product_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT,
+    image_url TEXT,
+    mall_name TEXT,
+    link TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 5. `price_history` (시계열 가격 이력 & 고속 인덱스)
+```sql
+CREATE TABLE price_history (
+    id SERIAL PRIMARY KEY,
+    product_id TEXT NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    price INT NOT NULL,
+    collected_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_price_history_pid_date ON price_history(product_id, collected_at);
+```
+
 ---
 
 ## 🚀 실행 가이드 (How to Run)
@@ -116,7 +141,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. 환경 변수 설정 (`.env`)
-`.env.example` 파일을 복사하여 프로젝트 루트에 `.env` 파일을 생성하고 네이버 API 키를 입력합니다.
+`.env.example` 파일을 복사하여 프로젝트 루트에 `.env` 파일을 생성하고 네이버 API 키와 DB 비밀번호를 입력합니다.
 ```env
 NAVER_CLIENT_ID=발급받은_Client_ID
 NAVER_CLIENT_SECRET=발급받은_Client_Secret
