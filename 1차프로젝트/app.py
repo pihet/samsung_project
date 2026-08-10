@@ -29,6 +29,17 @@ st.set_page_config(
 # 데이터베이스 초기화
 init_db()
 
+# F5 새로고침 시 회원 로그인 세션 자동 유지/복원
+db_p_init = st.session_state.get('db_pass', '1111')
+if 'user' not in st.session_state and st.query_params.get('uid'):
+    try:
+        uid = int(st.query_params['uid'])
+        restored_user = db_manager.get_user_by_id(uid, db_pass=db_p_init)
+        if restored_user:
+            st.session_state['user'] = restored_user
+    except Exception:
+        pass
+
 # 커스텀 CSS 디자인 (다나와 Danawa 메인 브랜드 디자인 시스템)
 st.markdown("""
     <style>
@@ -702,7 +713,7 @@ if st.session_state.get('show_auth_modal'):
     @st.dialog("BuyOrWait 회원 서비스")
     def render_auth_dialog():
         tab_login, tab_signup = st.tabs(["로그인", "회원가입"])
-        db_p = st.session_state.get('db_pass', 'postgres')
+        db_p = st.session_state.get('db_pass', '1111')
         
         with tab_login:
             st.markdown("<div style='font-size:0.9rem; color:#64748B; margin-bottom:0.8rem;'>가입하신 이메일과 비밀번호를 입력해 주세요.</div>", unsafe_allow_html=True)
@@ -716,6 +727,7 @@ if st.session_state.get('show_auth_modal'):
                     success, res = db_manager.login_user(login_email, login_pw, db_pass=db_p)
                     if success:
                         st.session_state['user'] = res
+                        st.query_params['uid'] = res['user_id']
                         st.success(f"{res['nickname']}님 환영합니다!")
                         st.rerun()
                     else:
@@ -738,6 +750,7 @@ if st.session_state.get('show_auth_modal'):
                     success, res = db_manager.register_user(signup_email, signup_pw, signup_nick, db_pass=db_p)
                     if success:
                         st.session_state['user'] = res
+                        st.query_params['uid'] = res['user_id']
                         st.success(f"{res['nickname']}님 회원가입이 완료되었습니다!")
                         st.rerun()
                     else:
@@ -766,7 +779,10 @@ with col_auth:
     if current_user:
         st.markdown(f"<div style='font-size:0.88rem; color:#0F172A; font-weight:700; text-align:right; padding-top:0.4rem;'><b>{current_user['nickname']}님</b></div>", unsafe_allow_html=True)
         if st.button("로그아웃", key="btn_logout", use_container_width=True):
-            del st.session_state['user']
+            if 'user' in st.session_state:
+                del st.session_state['user']
+            st.query_params.clear()
+            st.rerun()
             st.rerun()
     else:
         if st.button("로그인 / 회원가입", key="btn_open_auth", use_container_width=True, type="primary"):
@@ -972,13 +988,34 @@ with tab2:
                 st.session_state['show_auth_modal'] = True
                 st.rerun()
     else:
-        db_p = st.session_state.get('db_pass', 'postgres')
+        db_p = st.session_state.get('db_pass', '1111')
         fav_items = db_manager.get_user_favorites(current_user['user_id'], db_pass=db_p)
         if fav_items:
-            df_fav = pd.DataFrame(fav_items)
-            df_fav_display = df_fav[['product_id', 'title', 'lprice', 'target_price', 'alert_enabled', 'favorited_at']].copy()
-            df_fav_display.columns = ['상품 PCODE', '상품명', '현재 최저가(원)', '목표 알림가(원)', '알림 수신', '찜 등록일시']
-            st.dataframe(df_fav_display, use_container_width=True)
+            for fav_idx, fav in enumerate(fav_items):
+                clean_title = analyzer.clean_product_name(fav['title'])
+                img_url = fav['image_url'] if fav.get('image_url') else "https://via.placeholder.com/80/115DCE/FFFFFF?text=Danawa"
+                fav_p = fav['lprice']
+                fav_date = str(fav['favorited_at'])[:10] if fav.get('favorited_at') else ""
+                
+                c_f1, c_f2 = st.columns([4, 1])
+                with c_f1:
+                    st.markdown(f"""
+                        <div style="background:#FFF; border:1px solid #CBD5E1; border-radius:8px; padding:0.9rem 1.2rem; margin-bottom:0.6rem; display:flex; align-items:center; gap:1.2rem;">
+                            <img src="{img_url}" style="width:65px; height:65px; object-fit:contain; border-radius:6px;" />
+                            <div style="flex:1;">
+                                <div style="font-weight:800; font-size:1.02rem; color:#0F172A; margin-bottom:0.25rem;">{clean_title}</div>
+                                <div style="font-size:0.88rem; color:#64748B;">
+                                    현재 최저가: <span style="font-size:1.1rem; font-weight:800; color:#115DCE;">{fav_p:,}원</span>
+                                    <span style="margin-left:1.2rem; font-size:0.8rem; color:#94A3B8;">등록일: {fav_date}</span>
+                                </div>
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                with c_f2:
+                    if st.button("찜 해제", key=f"btn_rem_fav_{fav['product_id']}_{fav_idx}", use_container_width=True):
+                        db_manager.remove_favorite(current_user['user_id'], fav['product_id'], db_pass=db_p)
+                        st.success("찜한 상품에서 삭제되었습니다.")
+                        st.rerun()
         else:
             st.info(f"{current_user['nickname']}님의 찜한 상품이 아직 없습니다. 상품 검색 후 관심 상품을 추가해 보세요!")
 

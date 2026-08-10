@@ -97,26 +97,41 @@ def login_user(email, password, db_pass=None):
     finally:
         conn.close()
 
+def get_user_by_id(user_id, db_pass=None):
+    """user_id로 회원 정보 조회 (세션 유지 복원용)"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return None
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT user_id, email, nickname, created_at FROM users WHERE user_id = %s;", (user_id,))
+            user = cur.fetchone()
+            return dict(user) if user else None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
 def save_product(conn, product):
     """상품 기본 정보 저장/업데이트 (UPSERT)"""
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO products (product_id, title, category, image_url, mall_name, current_price, updated_at)
+            INSERT INTO products (product_id, title, category, image_url, mall_name, link, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
             ON CONFLICT (product_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 category = EXCLUDED.category,
                 image_url = EXCLUDED.image_url,
                 mall_name = EXCLUDED.mall_name,
-                current_price = EXCLUDED.current_price,
+                link = EXCLUDED.link,
                 updated_at = CURRENT_TIMESTAMP;
         """, (
             str(product.get('product_id')),
             product.get('title', ''),
             product.get('category', ''),
             product.get('image_url', ''),
-            product.get('mall_name', '다나와'),
-            int(product.get('lprice', 0))
+            product.get('mall_name', ''),
+            product.get('link', '')
         ))
 
 def add_favorite(user_id, product, target_price=None, db_pass=None):
@@ -139,8 +154,8 @@ def add_favorite(user_id, product, target_price=None, db_pass=None):
             """, (user_id, p_id, target_price))
 
             cur.execute("""
-                INSERT INTO price_history (product_id, price)
-                VALUES (%s, %s);
+                INSERT INTO price_history (product_id, price, collected_at)
+                VALUES (%s, %s, CURRENT_TIMESTAMP);
             """, (p_id, int(product.get('lprice', 0))))
 
             conn.commit()
@@ -181,7 +196,12 @@ def get_user_favorites(user_id, db_pass=None):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT f.favorite_id, f.target_price, f.alert_enabled, f.created_at as favorited_at,
-                       p.product_id, p.title, p.category, p.image_url, p.mall_name, p.current_price as lprice
+                       p.product_id, p.title, p.category, p.image_url, p.mall_name, p.link,
+                       COALESCE((
+                           SELECT price FROM price_history ph 
+                           WHERE ph.product_id = p.product_id 
+                           ORDER BY collected_at DESC LIMIT 1
+                       ), 0) as lprice
                 FROM favorites f
                 JOIN products p ON f.product_id = p.product_id
                 WHERE f.user_id = %s
@@ -189,7 +209,8 @@ def get_user_favorites(user_id, db_pass=None):
             """, (user_id,))
             rows = cur.fetchall()
             return [dict(r) for r in rows]
-    except Exception:
+    except Exception as e:
+        print(f"[get_user_favorites error]: {e}")
         return []
     finally:
         conn.close()
