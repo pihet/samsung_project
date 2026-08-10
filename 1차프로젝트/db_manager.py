@@ -166,6 +166,27 @@ def add_favorite(user_id, product, target_price=None, db_pass=None):
     finally:
         conn.close()
 
+def update_favorite_target_price(user_id, product_id, target_price, db_pass=None):
+    """찜한 상품의 목표 알림가 업데이트"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return False, "DB 연결 실패"
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE favorites
+                SET target_price = %s, alert_enabled = TRUE
+                WHERE user_id = %s AND product_id = %s;
+            """, (target_price, user_id, str(product_id)))
+            conn.commit()
+            return True, "목표 알림가가 변경되었습니다."
+    except Exception as e:
+        conn.rollback()
+        return False, f"목표가 변경 실패: {str(e)}"
+    finally:
+        conn.close()
+
 def remove_favorite(user_id, product_id, db_pass=None):
     """찜한 상품 제거"""
     conn = get_db_connection(password=db_pass)

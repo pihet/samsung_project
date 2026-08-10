@@ -473,11 +473,24 @@ def show_product_detail_dialog(selected):
 {mall_rows_html}
 </div>""", unsafe_allow_html=True)
 
-    col_btn_fav, col_btn_cmp, col_btn_buy = st.columns([1, 1, 1])
     current_user = st.session_state.get('user')
     p_id = selected['product_id']
     db_p = st.session_state.get('db_pass', '1111')
     is_fav = db_manager.is_favorite(current_user['user_id'], p_id, db_pass=db_p) if current_user else False
+
+    # 목표 알림가 설정 UI (찜하기 시 원하는 목표 가격 지정)
+    default_target = int(lprice * 0.95)
+    c_tp1, c_tp2 = st.columns([2.5, 1.5])
+    with c_tp1:
+        st.markdown(f"""
+            <div style="font-size:0.85rem; font-weight:700; color:#334155; margin-top:0.4rem;">
+                목표 알림가 설정 (현재 최저가: <b style="color:#115DCE;">{lprice:,}원</b>)
+            </div>
+        """, unsafe_allow_html=True)
+    with c_tp2:
+        target_price_val = st.number_input("목표가 (원)", value=default_target, step=1000, key=f"inp_tp_{p_id}", label_visibility="collapsed")
+
+    col_btn_fav, col_btn_cmp, col_btn_buy = st.columns([1, 1, 1])
 
     compare_list = st.session_state.get('compare_items', [])
     is_cmp = any(str(x['product_id']) == str(p_id) for x in compare_list)
@@ -494,8 +507,8 @@ def show_product_detail_dialog(selected):
                     st.session_state['show_auth_modal'] = True
                     st.rerun()
                 else:
-                    db_manager.add_favorite(current_user['user_id'], selected, db_pass=db_p)
-                    st.toast("찜 목록에 추가되었습니다.")
+                    db_manager.add_favorite(current_user['user_id'], selected, target_price=int(target_price_val), db_pass=db_p)
+                    st.toast(f"목표가 {int(target_price_val):,}원 설정 및 찜 목록 추가 완료!")
                     st.rerun()
 
     with col_btn_cmp:
@@ -995,15 +1008,28 @@ with tab2:
                 clean_title = analyzer.clean_product_name(fav['title'])
                 img_url = fav['image_url'] if fav.get('image_url') else "https://via.placeholder.com/80/115DCE/FFFFFF?text=Danawa"
                 fav_p = fav['lprice']
+                target_p = fav.get('target_price')
                 fav_date = str(fav['favorited_at'])[:10] if fav.get('favorited_at') else ""
                 
-                c_f1, c_f2 = st.columns([4, 1])
+                # 목표가 달성 여부 뱃지 판별
+                if target_p and target_p > 0:
+                    if fav_p <= target_p:
+                        status_badge = f'<span style="background:#DCFCE7; color:#15803D; font-weight:800; font-size:0.78rem; padding:0.2rem 0.5rem; border-radius:4px; margin-left:0.5rem;">🟢 목표가 달성! ({target_p:,}원 이하)</span>'
+                    else:
+                        diff = fav_p - target_p
+                        status_badge = f'<span style="background:#FEF3C7; color:#B45309; font-weight:700; font-size:0.78rem; padding:0.2rem 0.5rem; border-radius:4px; margin-left:0.5rem;">🟡 목표가까지 {diff:,}원 남음 (목표: {target_p:,}원)</span>'
+                else:
+                    status_badge = '<span style="background:#F1F5F9; color:#64748B; font-weight:600; font-size:0.78rem; padding:0.2rem 0.5rem; border-radius:4px; margin-left:0.5rem;">목표가 미설정</span>'
+
+                c_f1, c_f2 = st.columns([3.6, 1.4])
                 with c_f1:
                     st.markdown(f"""
-                        <div style="background:#FFF; border:1px solid #CBD5E1; border-radius:8px; padding:0.9rem 1.2rem; margin-bottom:0.6rem; display:flex; align-items:center; gap:1.2rem;">
+                        <div style="background:#FFF; border:1px solid #CBD5E1; border-radius:8px; padding:0.9rem 1.2rem; margin-bottom:0.4rem; display:flex; align-items:center; gap:1.2rem;">
                             <img src="{img_url}" style="width:65px; height:65px; object-fit:contain; border-radius:6px;" />
                             <div style="flex:1;">
-                                <div style="font-weight:800; font-size:1.02rem; color:#0F172A; margin-bottom:0.25rem;">{clean_title}</div>
+                                <div style="font-weight:800; font-size:1.02rem; color:#0F172A; margin-bottom:0.25rem;">
+                                    {clean_title} {status_badge}
+                                </div>
                                 <div style="font-size:0.88rem; color:#64748B;">
                                     현재 최저가: <span style="font-size:1.1rem; font-weight:800; color:#115DCE;">{fav_p:,}원</span>
                                     <span style="margin-left:1.2rem; font-size:0.8rem; color:#94A3B8;">등록일: {fav_date}</span>
@@ -1012,10 +1038,21 @@ with tab2:
                         </div>
                     """, unsafe_allow_html=True)
                 with c_f2:
-                    if st.button("찜 해제", key=f"btn_rem_fav_{fav['product_id']}_{fav_idx}", use_container_width=True):
-                        db_manager.remove_favorite(current_user['user_id'], fav['product_id'], db_pass=db_p)
-                        st.success("찜한 상품에서 삭제되었습니다.")
-                        st.rerun()
+                    c_m1, c_m2 = st.columns([1, 1])
+                    with c_m1:
+                        with st.popover("목표가 수정", use_container_width=True):
+                            st.markdown("<div style='font-size:0.85rem; font-weight:700; color:#0F172A; margin-bottom:0.4rem;'>목표 알림가 변경</div>", unsafe_allow_html=True)
+                            cur_tp_val = int(target_p) if (target_p and target_p > 0) else int(fav_p * 0.95)
+                            new_tp = st.number_input("목표가 (원)", value=cur_tp_val, step=1000, key=f"inp_mod_tp_{fav['product_id']}_{fav_idx}")
+                            if st.button("저장하기", key=f"btn_save_tp_{fav['product_id']}_{fav_idx}", type="primary", use_container_width=True):
+                                db_manager.update_favorite_target_price(current_user['user_id'], fav['product_id'], int(new_tp), db_pass=db_p)
+                                st.toast(f"목표가가 {int(new_tp):,}원으로 변경되었습니다!")
+                                st.rerun()
+                    with c_m2:
+                        if st.button("찜 해제", key=f"btn_rem_fav_{fav['product_id']}_{fav_idx}", use_container_width=True):
+                            db_manager.remove_favorite(current_user['user_id'], fav['product_id'], db_pass=db_p)
+                            st.success("찜한 상품에서 삭제되었습니다.")
+                            st.rerun()
         else:
             st.info(f"{current_user['nickname']}님의 찜한 상품이 아직 없습니다. 상품 검색 후 관심 상품을 추가해 보세요!")
 
