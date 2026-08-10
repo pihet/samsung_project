@@ -488,7 +488,7 @@ def show_product_detail_dialog(selected):
             </div>
         """, unsafe_allow_html=True)
     with c_tp2:
-        target_price_val = st.number_input("목표가 (원)", value=default_target, step=1000, key=f"inp_tp_{p_id}", label_visibility="collapsed")
+        target_price_val = st.number_input("목표가 (원)", min_value=0, value=default_target, step=1000, key=f"inp_tp_{p_id}", label_visibility="collapsed")
 
     col_btn_fav, col_btn_cmp, col_btn_buy = st.columns([1, 1, 1])
 
@@ -1043,7 +1043,7 @@ with tab2:
                         with st.popover("목표가 수정", use_container_width=True):
                             st.markdown("<div style='font-size:0.85rem; font-weight:700; color:#0F172A; margin-bottom:0.4rem;'>목표 알림가 변경</div>", unsafe_allow_html=True)
                             cur_tp_val = int(target_p) if (target_p and target_p > 0) else int(fav_p * 0.95)
-                            new_tp = st.number_input("목표가 (원)", value=cur_tp_val, step=1000, key=f"inp_mod_tp_{fav['product_id']}_{fav_idx}")
+                            new_tp = st.number_input("목표가 (원)", min_value=0, value=cur_tp_val, step=1000, key=f"inp_mod_tp_{fav['product_id']}_{fav_idx}")
                             if st.button("저장하기", key=f"btn_save_tp_{fav['product_id']}_{fav_idx}", type="primary", use_container_width=True):
                                 db_manager.update_favorite_target_price(current_user['user_id'], fav['product_id'], int(new_tp), db_pass=db_p)
                                 st.toast(f"목표가가 {int(new_tp):,}원으로 변경되었습니다!")
