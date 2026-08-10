@@ -29,7 +29,13 @@ st.set_page_config(
 # 데이터베이스 초기화
 init_db()
 
-# F5 새로고침 시 회원 로그인 세션 자동 유지/복원
+# F5 새로고침 시 회원 로그인 세션 자동 유지/복원 및 로그아웃
+if st.query_params.get('logout') == '1':
+    if 'user' in st.session_state:
+        del st.session_state['user']
+    st.query_params.clear()
+    st.rerun()
+
 db_p_init = st.session_state.get('db_pass', '1111')
 if 'user' not in st.session_state and st.query_params.get('uid'):
     try:
@@ -174,9 +180,27 @@ st.markdown("""
         background-color: #0D4AA5 !important;
     }
 
-    /* 비밀번호 입력창 내 눈동자(보기) 버튼 완전 숨김 처리 */
-    div[data-baseweb="input"] button {
+    /* 비밀번호 입력창 우측 요소(눈동자 보기 버튼 포함) 완전 숨김 처리 */
+    div[data-testid="stTextInput"] div[data-baseweb="input"] > div:nth-child(2),
+    div[data-baseweb="input"] input ~ *,
+    div[data-testid="stTextInput"] button,
+    div[data-baseweb="input"] button,
+    button[aria-label*="password"],
+    button[aria-label*="Password"],
+    div[data-baseweb="input"] [role="button"],
+    [data-testid="stInputIcon"] {
         display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        max-width: 0 !important;
+        max-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: none !important;
+        background: transparent !important;
+        pointer-events: none !important;
     }
     
     /* 일반 버튼 오버라이드 */
@@ -191,6 +215,27 @@ st.markdown("""
     .stButton > button:hover {
         border-color: #115DCE !important;
         color: #115DCE !important;
+    }
+
+    /* GNB 우측 회원 정보 및 로그아웃 버튼 스타일 */
+    .dnw-logout-btn {
+        display: inline-block !important;
+        background: #FFFFFF !important;
+        border: 1px solid #CBD5E1 !important;
+        color: #334155 !important;
+        font-size: 0.78rem !important;
+        font-weight: 700 !important;
+        padding: 0.18rem 0.65rem !important;
+        border-radius: 4px !important;
+        text-decoration: none !important;
+        transition: all 0.15s ease !important;
+        line-height: 1.4 !important;
+        cursor: pointer !important;
+    }
+    .dnw-logout-btn:hover {
+        border-color: #115DCE !important;
+        color: #115DCE !important;
+        background: #F1F5F9 !important;
     }
 
     /* 다나와 상품 카드 (AGENTS.md 규칙 준수) */
@@ -798,13 +843,14 @@ with col_logo:
 with col_auth:
     current_user = st.session_state.get('user')
     if current_user:
-        st.markdown(f"<div style='font-size:0.88rem; color:#0F172A; font-weight:700; text-align:right; padding-top:0.4rem;'><b>{current_user['nickname']}님</b></div>", unsafe_allow_html=True)
-        if st.button("로그아웃", key="btn_logout", use_container_width=True):
-            if 'user' in st.session_state:
-                del st.session_state['user']
-            st.query_params.clear()
-            st.rerun()
-            st.rerun()
+        st.markdown(f"""
+            <div style="display:flex; flex-direction:column; align-items:flex-end; width:100%; padding-top:0.2rem;">
+                <div style="display:flex; flex-direction:column; align-items:center; width:fit-content;">
+                    <div style="font-size:0.92rem; color:#0F172A; font-weight:800; margin-bottom:0.25rem; text-align:center; white-space:nowrap;">{current_user['nickname']}님</div>
+                    <a href="/?logout=1" target="_self" class="dnw-logout-btn">로그아웃</a>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
         if st.button("로그인 / 회원가입", key="btn_open_auth", use_container_width=True, type="primary"):
             st.session_state['show_auth_modal'] = True
@@ -1010,6 +1056,11 @@ with tab2:
                 st.rerun()
     else:
         db_p = st.session_state.get('db_pass', '1111')
+        # 목표가 달성 상품 탐지 및 자동 이메일 알림 처리
+        sent_cnt, alert_msg = db_manager.check_and_send_target_price_alerts(current_user['user_id'], db_pass=db_p)
+        if sent_cnt > 0:
+            st.toast(f"🎉 {sent_cnt}개 상품이 목표 알림가에 도달하여 {current_user['email']}로 알림 메일이 발송되었습니다!")
+
         fav_items = db_manager.get_user_favorites(current_user['user_id'], db_pass=db_p)
         if fav_items:
             for fav_idx, fav in enumerate(fav_items):

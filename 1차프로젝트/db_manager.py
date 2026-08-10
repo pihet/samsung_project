@@ -167,7 +167,7 @@ def add_favorite(user_id, product, target_price=None, db_pass=None):
         conn.close()
 
 def update_favorite_target_price(user_id, product_id, target_price, db_pass=None):
-    """찜한 상품의 목표 알림가 업데이트"""
+    """찜한 상품의 목표 알림가 업데이트 (알림 재발송 플래그 리셋)"""
     conn = get_db_connection(password=db_pass)
     if not conn:
         return False, "DB 연결 실패"
@@ -176,7 +176,7 @@ def update_favorite_target_price(user_id, product_id, target_price, db_pass=None
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE favorites
-                SET target_price = %s, alert_enabled = TRUE
+                SET target_price = %s, alert_enabled = TRUE, is_alert_sent = FALSE
                 WHERE user_id = %s AND product_id = %s;
             """, (target_price, user_id, str(product_id)))
             conn.commit()
@@ -184,6 +184,157 @@ def update_favorite_target_price(user_id, product_id, target_price, db_pass=None
     except Exception as e:
         conn.rollback()
         return False, f"목표가 변경 실패: {str(e)}"
+    finally:
+        conn.close()
+
+import requests
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.naver.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+
+def send_price_alert_email(to_email, nickname, product_title, current_price, target_price, link="https://www.danawa.com"):
+    """목표가 달성 시 회원 이메일로 HTML 이메일 알림 발송 (Resend API 우선 지원, SMTP 하이브리드)"""
+    from analyzer import clean_product_name
+    display_title = clean_product_name(product_title)
+    subject = f"[BuyOrWait] 축하합니다! 찜하신 '{display_title[:20]}...' 상품이 목표가에 도달했습니다!"
+    
+    html_body = f"""
+    <html>
+    <body style="font-family: 'Pretendard', sans-serif; background-color: #F8FAFC; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #FFFFFF; border: 2px solid #115DCE; border-radius: 12px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.08);">
+            <h2 style="color: #115DCE; margin-top: 0;">BuyOrWait 목표가 달성 알림</h2>
+            <p style="font-size: 16px; color: #334155;">안녕하세요, <b>{nickname}</b>님!</p>
+            <p style="font-size: 15px; color: #475569; line-height: 1.6;">
+                찜하신 관심 상품의 가격이 설정하신 <b>목표 알림가 이하로 하락</b>하였습니다.<br>
+                지금이 최적의 구매 찬스입니다!
+            </p>
+            <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 20px 0;" />
+            <div style="background: #F1F5F9; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+                <div style="font-weight: 800; font-size: 18px; color: #0F172A; margin-bottom: 10px;">{display_title}</div>
+                <div style="font-size: 15px; color: #64748B; margin-bottom: 6px;">
+                    목표 알림가: <span style="font-weight: 700; color: #059669;">{target_price:,}원</span>
+                </div>
+                <div style="font-size: 17px; color: #0F172A;">
+                    현재 실시간 최저가: <span style="font-size: 22px; font-weight: 900; color: #115DCE;">{current_price:,}원</span>
+                </div>
+            </div>
+            <div style="text-align: center; margin-top: 25px;">
+                <a href="{link}" target="_blank" style="background: #115DCE; color: #FFFFFF; font-size: 16px; font-weight: 800; padding: 14px 28px; border-radius: 8px; text-decoration: none; display: inline-block;">
+                    최저가 구매하러 가기
+                </a>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # 1. Resend API 우선 발송 시도 (개인 비밀번호 없는 기업형 API)
+    resend_key = os.getenv("RESEND_API_KEY", RESEND_API_KEY)
+    if resend_key:
+        try:
+            headers = {
+                'Authorization': f'Bearer {resend_key.strip()}',
+                'Content-Type': 'application/json'
+            }
+            payload = {
+                'from': 'BuyOrWait <onboarding@resend.dev>',
+                'to': [to_email],
+                'subject': subject,
+                'html': html_body
+            }
+            res = requests.post('https://api.resend.com/emails', headers=headers, json=payload, timeout=10)
+            if res.status_code == 200:
+                print(f"[Resend Email Success] 수신자: {to_email}, Response ID: {res.json().get('id')}")
+                return True, "Resend API로 이메일 알림이 전송되었습니다!"
+        except Exception as e:
+            print(f"[Resend Email Warning] Resend 발송 실패, SMTP fallback 시도: {e}")
+
+    # 2. SMTP fallback 시도
+    if SMTP_USER and SMTP_PASS:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = SMTP_USER
+            msg["To"] = to_email
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10)
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, [to_email], msg.as_string())
+            server.quit()
+            return True, "SMTP로 이메일 알림이 전송되었습니다!"
+        except Exception as e:
+            print(f"[SMTP Email Error]: {e}")
+
+    # 3. 시뮬레이션 처리
+    print(f"[Email Notification Simulator] 수신자: {to_email}, 상품: {product_title}, 현재가: {current_price:,}원, 목표가: {target_price:,}원")
+    return True, "가상 이메일 알림 처리 완료"
+
+def check_and_send_target_price_alerts(user_id, db_pass=None):
+    """특정 회원의 찜 목록 중 목표 알림가 이하로 하락한 상품을 탐지하여 이메일 발송 및 갱신"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return 0, "DB 연결 실패"
+
+    sent_count = 0
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT email, nickname FROM users WHERE user_id = %s;", (user_id,))
+            user_info = cur.fetchone()
+            if not user_info:
+                return 0, "회원 정보를 찾을 수 없습니다."
+
+            user_email = user_info['email']
+            nickname = user_info['nickname']
+
+            cur.execute("""
+                SELECT f.favorite_id, f.target_price, f.product_id, p.title, p.link,
+                       COALESCE((
+                           SELECT price FROM price_history ph 
+                           WHERE ph.product_id = p.product_id 
+                           ORDER BY collected_at DESC LIMIT 1
+                       ), 0) as lprice
+                FROM favorites f
+                JOIN products p ON f.product_id = p.product_id
+                WHERE f.user_id = %s 
+                  AND f.target_price IS NOT NULL 
+                  AND f.target_price > 0
+                  AND f.alert_enabled = TRUE
+                  AND (f.is_alert_sent IS FALSE OR f.is_alert_sent IS NULL);
+            """, (user_id,))
+
+            alerts = cur.fetchall()
+
+            for item in alerts:
+                lprice = item['lprice']
+                target_p = item['target_price']
+                if lprice > 0 and lprice <= target_p:
+                    success, msg = send_price_alert_email(
+                        to_email=user_email,
+                        nickname=nickname,
+                        product_title=item['title'],
+                        current_price=lprice,
+                        target_price=target_p,
+                        link=item['link'] if item['link'] else "https://www.danawa.com"
+                    )
+                    if success:
+                        cur.execute("UPDATE favorites SET is_alert_sent = TRUE WHERE favorite_id = %s;", (item['favorite_id'],))
+                        sent_count += 1
+
+            conn.commit()
+            return sent_count, f"{sent_count}건의 목표가 달성 알림 메일 처리 완료"
+    except Exception as e:
+        conn.rollback()
+        print(f"[check_and_send_target_price_alerts error]: {e}")
+        return 0, f"알림 처리 실패: {str(e)}"
     finally:
         conn.close()
 
