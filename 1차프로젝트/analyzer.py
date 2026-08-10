@@ -2,10 +2,10 @@ import pandas as pd
 import numpy as np
 from ml_forecaster import predict_future_prices
 
-def analyze_price_trend(df_history, days=None):
+def analyze_price_trend(df_history, days=None, upcoming_events=None):
     """
     상품 가격 이력(DataFrame)을 입력받아 지정 기간(days) 동안의 할인 유형,
-    머신러닝 시계열 예측(14일) 및 최종 구매 추천 지수를 분석하는 종합 엔진
+    머신러닝 시계열 예측(14일) 및 세일 캘린더 연동 최신 구매 추천 지수를 분석하는 종합 엔진
     """
     if df_history is None or df_history.empty:
         return {
@@ -42,8 +42,8 @@ def analyze_price_trend(df_history, days=None):
     # 할인율 (평균가 대비 현재가 절감 비율)
     discount_vs_avg = ((avg_price - current_price) / avg_price * 100) if avg_price > 0 else 0
 
-    # 머신러닝 14일 미래 시계열 예측 실행
-    ml_forecast = predict_future_prices(df_history, forecast_days=14)
+    # 머신러닝 14일 미래 시계열 예측 실행 (세일 이벤트 할인율 직접 연동)
+    ml_forecast = predict_future_prices(df_history, forecast_days=14, upcoming_events=upcoming_events)
 
     # 1. 상시 할인 패턴 (가격 변동성 2% 이하)
     if volatility <= 0.02:
@@ -93,6 +93,22 @@ def analyze_price_trend(df_history, days=None):
             discount_score = min(100, discount_score + 5)
             recommendation += f"<br/>[예측]: 향후 14일간 약 {pct}% 가격 상승이 예상되므로 필요한 경우 빠른 조기 구매를 권장합니다."
 
+    # ----------------------------------------------------
+    # 쇼핑몰 세일 캘린더 연동 알림 (중복 세일 이벤트 다중 수집)
+    # ----------------------------------------------------
+    sale_alerts = []
+    if upcoming_events:
+        for ev in upcoming_events:
+            d_left = ev.get('days_left', 99)
+            if d_left is not None and 0 <= d_left <= 14:
+                sale_alerts.append({
+                    'event_name': ev.get('event_name', '대형 할인'),
+                    'mall_name': ev.get('mall_name', '쇼핑몰'),
+                    'days_left': d_left,
+                    'discount_rate_avg': ev.get('discount_rate_avg', 15),
+                    'recommend_action': ev.get('recommend_action', 'WAIT')
+                })
+
     return {
         'current_price': current_price,
         'avg_price': int(avg_price),
@@ -103,5 +119,58 @@ def analyze_price_trend(df_history, days=None):
         'badge': badge,
         'badge_color': badge_color,
         'recommendation': recommendation,
-        'ml_forecast': ml_forecast
+        'ml_forecast': ml_forecast,
     }
+
+def calculate_effective_price(lprice, card_discount_rate=0.05, pay_point_rate=0.01):
+    """카드 청구할인 및 페이 적립금을 가미한 체감 실구매가 계산"""
+    if not lprice or lprice <= 0:
+        return 0, 0, 0, 0
+    card_discount = int(lprice * card_discount_rate)
+    pay_point = int(lprice * pay_point_rate)
+    total_savings = card_discount + pay_point
+    effective_price = lprice - total_savings
+    return effective_price, total_savings, card_discount, pay_point
+
+def find_cheaper_spec_alternatives(current_item, all_items):
+    """현재 상품과 유사 스펙이지만 가격이 10%~40% 저렴한 대체 가성비 상품 추천"""
+    if not current_item or not all_items:
+        return []
+    
+    cur_p = current_item.get('lprice', 0)
+    cur_tags = set(current_item.get('spec_tags', []))
+    cur_id = str(current_item.get('product_id'))
+    
+    alternatives = []
+    for item in all_items:
+        if str(item.get('product_id')) == cur_id:
+            continue
+        
+        item_p = item.get('lprice', 0)
+        # 가격이 10% 이상 저렴한 상품 탐지
+        if 0 < item_p < cur_p * 0.90 and item_p >= cur_p * 0.50:
+            item_tags = set(item.get('spec_tags', []))
+            common_tags = cur_tags.intersection(item_tags)
+            
+            savings = cur_p - item_p
+            savings_pct = int((savings / cur_p) * 100)
+            
+            alternatives.append({
+                'item': item,
+                'savings': savings,
+                'savings_pct': savings_pct,
+                'common_specs': list(common_tags)
+            })
+            
+    # 절약 금액 기준 내림차순 정렬 후 상위 2개 반환
+    alternatives.sort(key=lambda x: x['savings'], reverse=True)
+    return alternatives[:2]
+
+def clean_product_name(title):
+    """제조사/회사명(코카콜라음료, 삼성전자, LG전자, 롯데칠성음료 등)을 제거하고 순수 상품명만 반환"""
+    if not title:
+        return ""
+    import re
+    pattern = r'^(?:삼성전자|LG전자|코카콜라음료|코카콜라|롯데칠성음료|롯데칠성|동원F&B|동원|농심|오뚜기|애플|Apple|한성컴퓨터|한성|MSI|ASUS|에이서|Acer|레노버|Lenovo|HP|DELL|삼양식품|삼양|팔도|해태제과|해태|오리온|매일유업|매일|서울우유|남양유업|남양|빙그레|동서식품|동서|대상|청정원|CJ제일제당|CJ|하이트진로|오비맥주|[가-힣A-Za-z0-9]+(?:전자|음료|제과|식품|제약|컴퓨터|코리아|산업|유업))\s+'
+    cleaned = re.sub(pattern, '', title.strip(), flags=re.IGNORECASE).strip()
+    return cleaned if cleaned else title

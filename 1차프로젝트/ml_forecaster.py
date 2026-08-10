@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 
 WEEKDAY_KOR = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
 
-def predict_future_prices(df_history, forecast_days=14):
+def predict_future_prices(df_history, forecast_days=14, upcoming_events=None):
     """
     과거 가격 이력 DataFrame을 받아 향후 forecast_days(기본 14일) 미래 가격 및 추세를 예측하는 시계열 ML 엔진
     """
@@ -102,7 +102,7 @@ def predict_future_prices(df_history, forecast_days=14):
     overall_mean = float(np.mean(daily.values))
     dow_means = df_dow.groupby('dow')['price'].mean()
     
-    # 요일별 상대 비율 계산 (예: 금/토/일은 상대적으로 할인 비중 반영)
+    # 요일별 상대 비율 계산
     dow_ratios = {}
     for d in range(7):
         if d in dow_means and overall_mean > 0:
@@ -112,7 +112,29 @@ def predict_future_prices(df_history, forecast_days=14):
 
     # 14일 미래 일자별 요일 계절성 적용
     seasonality_factors = np.array([dow_ratios[f_date.dayofweek] for f_date in forecast_dates])
-    pred_final = pred_base * seasonality_factors
+
+    # ----------------------------------------------------
+    # 쇼핑몰 세일 캘린더 이벤트 예상 할인율 파동 직접 반영 (중복 세일 시 최대 할인율 적용)
+    # ----------------------------------------------------
+    event_discount_factors = np.ones(forecast_days)
+    if upcoming_events:
+        for i, f_date in enumerate(forecast_dates):
+            f_dt = pd.to_datetime(f_date.date())
+            max_rate = 0.0
+            for ev in upcoming_events:
+                try:
+                    s_date = pd.to_datetime(ev.get('start_date'))
+                    e_date = pd.to_datetime(ev.get('end_date'))
+                    if s_date <= f_dt <= e_date:
+                        rate = float(ev.get('discount_rate_avg', 15)) / 100.0
+                        if rate > max_rate:
+                            max_rate = rate
+                except Exception:
+                    pass
+            if max_rate > 0:
+                event_discount_factors[i] = (1.0 - max_rate)
+
+    pred_final = pred_base * seasonality_factors * event_discount_factors
 
     # 음수 방지 및 최소 가격 제한 (기존 가격의 30% 이하로 떨어지지 않도록 안정화)
     min_price_floor = max(100.0, current_price * 0.3)

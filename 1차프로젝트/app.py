@@ -21,7 +21,7 @@ from analyzer import analyze_price_trend
 
 # Streamlit 페이지 설정
 st.set_page_config(
-    page_title="BuyOrWait - 다나와 실시간 최저가 & AI 가격 분석기",
+    page_title="BuyOrWait - 실시간 최저가 & AI 가격 분석기",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -206,10 +206,10 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25) !important;
     }
     .dnw-card.unselected {
-        background-color: #0F172A !important;
-        opacity: 0.35 !important;
-        filter: brightness(0.35) !important;
-        border: 1px solid #1E293B !important;
+        background-color: #FFFFFF !important;
+        opacity: 1.0 !important;
+        filter: none !important;
+        border: 1px solid #E2E8F0 !important;
     }
 
     .dnw-img-box {
@@ -392,6 +392,7 @@ st.markdown("""
 # ----------------------------------------------------
 @st.dialog("상품 상세 및 분석", width="large")
 def show_product_detail_dialog(selected):
+    st.session_state['dialog_showing'] = True
     raw_title = selected['title']
     lprice = selected['lprice']
     pcode = selected.get('pcode', '')
@@ -412,9 +413,13 @@ def show_product_detail_dialog(selected):
         price=lprice
     )
     generate_mock_price_history(selected['product_id'], lprice, days=1095, pattern="auto")
+    
+    eff_p, tot_sav, c_disc, p_point = analyzer.calculate_effective_price(lprice)
 
     df_hist = get_price_history(selected['product_id'])
-    analysis = analyze_price_trend(df_hist, days=180)
+    db_p = st.session_state.get('db_pass', '1111')
+    sales_events = db_manager.get_upcoming_sales_events(db_pass=db_p)
+    analysis = analyze_price_trend(df_hist, days=180, upcoming_events=sales_events)
     ml = analysis.get('ml_forecast')
 
     # 다나와 쇼핑몰별 가격비교 테이블 HTML 생성 (들여쓰기 제거로 Markdown 코드블록 이스케이프 방지)
@@ -426,9 +431,11 @@ def show_product_detail_dialog(selected):
 
     spec_tags_html = "".join([f'<span style="background:#F1F5F9; color:#334155; font-size:0.8rem; font-weight:600; padding:0.2rem 0.6rem; border-radius:4px; margin-right:0.3rem; margin-bottom:0.3rem; display:inline-block;">{tag}</span>' for tag in selected.get('spec_tags', [])])
 
+    display_title = analyzer.clean_product_name(selected['title'])
+
     st.markdown(f"""
 <div style="font-size: 1.4rem; font-weight: 800; color: #0F172A; margin-bottom: 0.3rem;">
-{selected['title']} 
+{display_title} 
 </div>
 <div style="margin-bottom: 0.8rem;">
 {spec_tags_html}
@@ -439,10 +446,13 @@ def show_product_detail_dialog(selected):
 <img src="{selected['image_url']}" style="width: 100%; max-height:240px; border-radius: 4px; object-fit: contain;" />
 </div>
 <div style="flex: 1; min-width: 300px;">
-<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; background:#F8FAFC; padding:1rem; border-radius:8px; border:1px solid #E2E8F0;">
+<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.2rem; background:#F8FAFC; padding:1rem; border-radius:8px; border:1px solid #E2E8F0;">
 <div>
 <span style="font-size: 0.9rem; font-weight: 700; color: #64748B; display:block;">실시간 최저가</span>
 <span style="font-size: 2.2rem; font-weight: 900; color: #115DCE;">{lprice:,}원</span>
+</div>
+<div style="background:#EFF6FF; border:1px solid #BFDBFE; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.88rem; color:#1E40AF; font-weight:700;">
+[체감 실구매가]: <b>{eff_p:,}원</b> <span style="font-size:0.8rem; color:#3B82F6;">(카드청구 5% + 페이 1% 적립 시 {tot_sav:,}원 추가 절감)</span>
 </div>
 </div>
 <div style="font-size: 1rem; font-weight: 800; color: #0F172A; margin-bottom: 0.6rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.4rem;">
@@ -452,11 +462,14 @@ def show_product_detail_dialog(selected):
 {mall_rows_html}
 </div>""", unsafe_allow_html=True)
 
-    col_btn_fav, col_btn_buy = st.columns([1, 1])
+    col_btn_fav, col_btn_cmp, col_btn_buy = st.columns([1, 1, 1])
     current_user = st.session_state.get('user')
     p_id = selected['product_id']
-    db_p = st.session_state.get('db_pass', 'postgres')
+    db_p = st.session_state.get('db_pass', '1111')
     is_fav = db_manager.is_favorite(current_user['user_id'], p_id, db_pass=db_p) if current_user else False
+
+    compare_list = st.session_state.get('compare_items', [])
+    is_cmp = any(str(x['product_id']) == str(p_id) for x in compare_list)
 
     with col_btn_fav:
         if is_fav:
@@ -474,12 +487,29 @@ def show_product_detail_dialog(selected):
                     st.toast("찜 목록에 추가되었습니다.")
                     st.rerun()
 
+    with col_btn_cmp:
+        if is_cmp:
+            if st.button("비교함 해제", key=f"cmp_btn_dlg_{p_id}", use_container_width=True):
+                st.session_state['compare_items'] = [x for x in compare_list if str(x['product_id']) != str(p_id)]
+                st.toast("비교함에서 삭제되었습니다.")
+                st.rerun()
+        else:
+            if st.button("+ 비교함 담기", key=f"cmp_btn_dlg_{p_id}", type="primary", use_container_width=True):
+                if len(compare_list) >= 4:
+                    st.warning("비교함에는 최대 4개 상품까지 담을 수 있습니다.")
+                else:
+                    if 'compare_items' not in st.session_state:
+                        st.session_state['compare_items'] = []
+                    st.session_state['compare_items'].append(selected)
+                    st.toast("비교함에 추가되었습니다.")
+                    st.rerun()
+
     with col_btn_buy:
         st.markdown(f'<a href="{danawa_url}" target="_blank" style="display:block; text-align:center; background: #115DCE; color: #FFFFFF; font-size: 0.95rem; font-weight: 800; padding: 0.55rem 1rem; border-radius: 6px; text-decoration: none; box-shadow: 0 4px 10px rgba(17, 93, 206, 0.25); margin-bottom: 1rem;">최저가 구매하러가기</a>', unsafe_allow_html=True)
 
     # AI 구매 추천 분석 카드
     st.markdown(f"""
-<div style="background:#F0F7FF; border:1px solid #BAE6FD; border-radius:8px; padding:1.2rem; margin-bottom:1.5rem;">
+<div style="background:#F0F7FF; border:1px solid #BAE6FD; border-radius:8px; padding:1.2rem; margin-bottom:1.2rem;">
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.6rem;">
 <div style="display:flex; align-items:center; gap:0.6rem;">
 <span style="background:#115DCE; color:#FFF; font-weight:800; font-size:0.8rem; padding:0.2rem 0.6rem; border-radius:4px;">AI 추천 지수</span>
@@ -489,6 +519,27 @@ def show_product_detail_dialog(selected):
 </div>
 <div style="font-size:0.95rem; color:#334155; line-height:1.5;">
 {analysis['recommendation']}
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+    # 쇼핑몰 세일 임박 알림 전용 독립 카드 (중복/다중 세일 지원)
+    sale_alerts = analysis.get('sale_alerts', [])
+    if sale_alerts:
+        for sa in sale_alerts:
+            d_left = sa['days_left']
+            d_str = "지금 진행 중!" if d_left <= 0 else f"D-{d_left}"
+            st.markdown(f"""
+<div style="background:#FFFBEB; border:1.5px solid #FCD34D; border-radius:8px; padding:1.1rem; margin-bottom:1rem; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);">
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.4rem;">
+<div style="display:flex; align-items:center; gap:0.6rem;">
+<span style="background:#E11D48; color:#FFF; font-weight:800; font-size:0.8rem; padding:0.2rem 0.6rem; border-radius:4px;">쇼핑몰 세일 임박</span>
+<span style="font-size:1.1rem; font-weight:800; color:#9F1239;">{sa['event_name']} ({d_str})</span>
+</div>
+<div style="font-size:0.9rem; font-weight:800; color:#B45309;">평균 최대 {sa['discount_rate_avg']}% 할인 예상</div>
+</div>
+<div style="font-size:0.92rem; color:#78350F; line-height:1.4;">
+약 {d_left}일 후 <b>{sa['mall_name']} {sa['event_name']}</b> 행사가 진행될 예정입니다. 급하지 않다면 <b>구매를 보류하고 세일 기간에 구매하시는 것을 강력 추천</b>합니다!
 </div>
 </div>
 """, unsafe_allow_html=True)
@@ -583,6 +634,45 @@ def show_product_detail_dialog(selected):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    # AI 동급 스펙 가성비 대체 상품 추천 카드
+    alts = analyzer.find_cheaper_spec_alternatives(selected, st.session_state.get('search_items', []))
+    if alts:
+        st.markdown(f"""
+            <div style="background:#F8FAFC; border:1px solid #CBD5E1; border-radius:8px; padding:1rem; margin-top:1.2rem; margin-bottom:0.8rem;">
+                <div style="font-size:1.05rem; font-weight:800; color:#0F172A; margin-bottom:0.2rem;">
+                    [AI 가성비 대체 상품 추천] (동급 스펙 대비 최대 {alts[0]['savings']:,}원 절약 가능)
+                </div>
+                <div style="font-size:0.85rem; color:#64748B;">현재 상품과 핵심 스펙이 유사하지만 더 저렴한 대체 모델을 AI가 탐지했습니다.</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        for alt_idx, alt in enumerate(alts):
+            alt_item = alt['item']
+            alt_p = alt_item['lprice']
+            alt_sav = alt['savings']
+            alt_pct = alt['savings_pct']
+            alt_clean_title = analyzer.clean_product_name(alt_item['title'])
+            
+            c_a1, c_a2 = st.columns([4, 1])
+            with c_a1:
+                st.markdown(f"""
+                    <div style="background:#FFF; border:1px solid #CBD5E1; border-radius:6px; padding:0.8rem; margin-bottom:0.5rem; display:flex; align-items:center; gap:1rem;">
+                        <img src="{alt_item['image_url']}" style="width:55px; height:55px; object-fit:contain; border-radius:4px;" />
+                        <div>
+                            <div style="font-weight:700; font-size:0.9rem; color:#0F172A; margin-bottom:0.2rem;">{alt_clean_title}</div>
+                            <div style="font-size:0.85rem; color:#64748B;">
+                                <span style="font-size:1.05rem; font-weight:800; color:#115DCE;">{alt_p:,}원</span> 
+                                <span style="background:#DCFCE7; color:#15803D; font-weight:800; padding:0.15rem 0.5rem; border-radius:4px; margin-left:0.4rem;">-{alt_sav:,}원 (-{alt_pct}%) 더 저렴!</span>
+                            </div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c_a2:
+                if st.button("이 상품 보기", key=f"btn_switch_alt_{alt_item['product_id']}_{alt_idx}", use_container_width=True):
+                    st.session_state['selected_product'] = alt_item
+                    st.session_state['open_dialog'] = True
+                    st.rerun()
 
 
 # ============================================================
@@ -698,7 +788,22 @@ with tab1:
     # 퀵 검색 추천 태그 칩 (스페이스바 1칸 간격 밀착)
     quick_queries = ["노트북", "갤럭시 S24", "아이폰 15", "OLED TV", "제로콜라", "스마트워치"]
     chips_html = "".join([f'<a href="?q={q}" target="_self" class="dnw-chip-btn">#{q}</a>' for q in quick_queries])
-    st.markdown(f'<div class="dnw-chips-wrap"><span class="dnw-chip-label">인기 검색어:</span>{chips_html}</div>', unsafe_allow_html=True)
+    # 비교함 플로팅 안내 바
+    compare_list = st.session_state.get('compare_items', [])
+    if compare_list:
+        st.markdown(f"""
+            <div style="background:#1E293B; color:#FFFFFF; border-radius:8px; padding:0.8rem 1.2rem; margin-bottom:0.8rem; display:flex; align-items:center; justify-content:space-between; box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                <div style="display:flex; align-items:center; gap:0.8rem;">
+                    <span style="background:#115DCE; color:#FFF; font-weight:800; font-size:0.82rem; padding:0.25rem 0.65rem; border-radius:4px;">비교함</span>
+                    <span style="font-weight:700; font-size:0.95rem;"><b>{len(compare_list)} / 4개</b> 상품이 비교함에 담겼습니다 (3번째 탭 [가격 추세 비교]에서 자동 분석)</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        c_bar1, c_bar2 = st.columns([1, 4])
+        with c_bar1:
+            if st.button("비교함 비우기", key="btn_clear_cmp_bar", use_container_width=True):
+                st.session_state['compare_items'] = []
+                st.rerun()
 
     with st.form("search_form", clear_on_submit=False):
         st.markdown('<div class="dnw-search-wrap">', unsafe_allow_html=True)
@@ -767,6 +872,11 @@ with tab1:
             end_idx = start_idx + items_per_page
             page_items = sorted_items[start_idx:end_idx]
 
+            # 팝업 열기 상태가 아니면 selected_product 정리하여 팝업 닫힘 시 100% 백색 초기화
+            if not st.session_state.get('open_dialog'):
+                if 'selected_product' in st.session_state:
+                    del st.session_state['selected_product']
+
             selected_id = st.session_state.get('selected_product', {}).get('product_id')
 
             # 상품 카드 렌더링 (AGENTS.md 규칙 적용)
@@ -783,8 +893,10 @@ with tab1:
                             # selected_id 가 None 이면 모든 카드가 기본 백색 100% (Rule 1)
                             # selected_id 가 존재하면 선택된 카드는 .selected, 미선택 카드는 .unselected 딤 처리 (Rule 3)
                             card_class = "dnw-card"
-                            if selected_id is not None:
-                                card_class += " selected" if str(item['product_id']) == str(selected_id) else " unselected"
+                            card_style = "background-color: #FFFFFF !important; opacity: 1.0 !important; filter: none !important;"
+                            if selected_id is not None and str(item['product_id']) == str(selected_id):
+                                card_class += " selected"
+                                card_style = "border: 3px solid #115DCE !important; background-color: #FFFFFF !important; opacity: 1.0 !important; filter: none !important;"
                             
                             spec_tags = item.get('spec_tags', [])
                             tags_html = "".join([f'<span class="dnw-spec-tag">{t}</span>' for t in spec_tags[:3]])
@@ -793,13 +905,17 @@ with tab1:
                             global_idx = row_start + i
                             btn_key = f"btn_{p_id}_{global_idx}"
                                 
+                            eff_p, tot_sav, _, _ = analyzer.calculate_effective_price(item['lprice'])
+                            clean_card_title = analyzer.clean_product_name(item['title'])
+                            
                             html_card = f"""
-                            <div class="{card_class}">
+                            <div class="{card_class}" style="{card_style}">
+                                <!-- state:{selected_id} -->
                                 <div class="dnw-img-box">
                                     <img src="{img_src}" />
                                 </div>
                                 <div class="dnw-info-box">
-                                    <div class="dnw-title">{item['title']}</div>
+                                    <div class="dnw-title">{clean_card_title}</div>
                                     <div class="dnw-specs-wrap">
                                         {tags_html}
                                     </div>
@@ -807,7 +923,10 @@ with tab1:
                                         <span class="dnw-badge-min">최저가</span>
                                         <div class="dnw-price-val"><b>{item['lprice']:,}</b>원</div>
                                     </div>
-                                    <div class="dnw-mall-name">판매처: {item.get('mall_name', '다나와 제휴몰')}</div>
+                                    <div style="font-size:0.75rem; color:#1E40AF; background:#EFF6FF; border:1px solid #BFDBFE; border-radius:4px; padding:0.15rem 0.4rem; margin-top:0.25rem; font-weight:700;">
+                                        체감가 {eff_p:,}원 <span style="font-size:0.7rem; color:#3B82F6;">(-{tot_sav:,}원)</span>
+                                    </div>
+                                    <div class="dnw-mall-name" style="margin-top:0.2rem;">판매처: {item.get('mall_name', '다나와 제휴몰')}</div>
                                 </div>
                             </div>
                             """
@@ -834,13 +953,13 @@ with tab1:
         show_product_detail_dialog(st.session_state['selected_product'])
 
 with tab2:
-    st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>찜한 상품 목록 (PostgreSQL 연동)</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>찜한 상품 목록</h4>", unsafe_allow_html=True)
     
     current_user = st.session_state.get('user')
     if not current_user:
         st.markdown("""
             <div style="background:#F0F7FF; border:1px solid #BAE6FD; border-radius:10px; padding:2.2rem 1.5rem; text-align:center; margin:1rem 0;">
-                <h3 style="color:#0F172A; font-size:1.2rem; font-weight:800; margin-bottom:0.5rem;">회원 전용 찜 서비스</h3>
+                <h3 style="color:#0F172A; font-size:1.2rem; font-weight:800; margin-bottom:0.5rem;">회원 전용 기능</h3>
                 <p style="color:#64748B; font-size:0.92rem; margin-bottom:1.4rem; line-height:1.5;">
                     로그인하시면 관심 있는 상품을 나만의 찜 목록에 저장하고<br>
                     <b>목표 가격 하락 시 실시간 알림 서비스</b>를 이용하실 수 있습니다.
@@ -863,25 +982,150 @@ with tab2:
         else:
             st.info(f"{current_user['nickname']}님의 찜한 상품이 아직 없습니다. 상품 검색 후 관심 상품을 추가해 보세요!")
 
+import re
+
+def calculate_unit_price(title, price):
+    """제목에서 수량/용량(개, 캔, kg, ml 등)을 감지하여 1개당/단가 계산"""
+    try:
+        match = re.search(r'(\d+)\s*(개|캔|팩|병|봉|세트|입)', title)
+        if match:
+            count = int(match.group(1))
+            if count > 1:
+                unit_p = int(price / count)
+                return f"1{match.group(2)}당 {unit_p:,}원 (총 {count}{match.group(2)})"
+        
+        match_cap = re.search(r'(\d+(?:\.\d+)?)\s*(kg|g|ml|l)', title, re.IGNORECASE)
+        if match_cap:
+            val = float(match_cap.group(1))
+            unit = match_cap.group(2).lower()
+            if unit == 'g' and val > 0:
+                p_100g = int((price / val) * 100)
+                return f"100g당 {p_100g:,}원"
+            elif unit == 'kg' and val > 0:
+                p_1kg = int(price / val)
+                return f"1kg당 {p_1kg:,}원"
+            elif unit == 'ml' and val > 0:
+                p_100ml = int((price / val) * 100)
+                return f"100ml당 {p_100ml:,}원"
+            elif unit == 'l' and val > 0:
+                p_1l = int(price / val)
+                return f"1L당 {p_1l:,}원"
+    except Exception:
+        pass
+    return "-"
+
 with tab3:
     st.markdown("<h4 style='margin-bottom:1rem; color:#0F172A; font-weight:800;'>상품 가격 추세 비교</h4>", unsafe_allow_html=True)
+    
+    # 4대 고대비 브랜드 라인 테마 컬러
+    CMP_COLORS = ["#115DCE", "#10B981", "#F59E0B", "#8B5CF6"]
+    
+    compare_list = st.session_state.get('compare_items', [])
     df_products = get_all_products()
+
+    # 비교함 항목과 수집 DB 항목 통합
+    title_to_item = {}
+    for item in compare_list:
+        title_to_item[item['title']] = item
+
     if not df_products.empty:
-        product_options = {row['title']: row['product_id'] for _, row in df_products.iterrows()}
-        selected_titles = st.multiselect("비교할 상품 선택", options=list(product_options.keys()), default=list(product_options.keys())[:2])
+        for _, row in df_products.iterrows():
+            if row['title'] not in title_to_item:
+                p_hist = get_price_history(row['product_id'])
+                latest_p = int(p_hist['price'].iloc[-1]) if not p_hist.empty else 0
+                title_to_item[row['title']] = {
+                    'product_id': row['product_id'],
+                    'title': row['title'],
+                    'lprice': row['current_price'] if 'current_price' in row else latest_p,
+                    'spec_tags': []
+                }
+
+    if title_to_item:
+        all_titles = list(title_to_item.keys())
+        default_selected = [x['title'] for x in compare_list[:4]] if compare_list else []
+        
+        selected_titles = st.multiselect("비교할 상품 선택 (최대 4개)", options=all_titles, default=default_selected, max_selections=4)
         
         if selected_titles:
+            # 조회 기간 필터 (1개월, 3개월, 6개월, 1년, 전체 - 기본 3개월 index=1)
+            timeframe_cmp = st.radio("조회 기간", ["1개월", "3개월", "6개월", "1년", "전체"], index=1, horizontal=True, key="cmp_timeframe_radio")
+            days_map_cmp = {"1개월": 30, "3개월": 90, "6개월": 180, "1년": 365, "전체": None}
+            selected_days_cmp = days_map_cmp[timeframe_cmp]
+
             fig_compare = go.Figure()
-            for title in selected_titles:
-                pid = product_options[title]
+            table_rows = []
+
+            for idx, title in enumerate(selected_titles):
+                item = title_to_item[title]
+                pid = item['product_id']
+                color = CMP_COLORS[idx % len(CMP_COLORS)]
+                
                 df_p = get_price_history(pid)
-                if not df_p.empty:
-                    fig_compare.add_trace(go.Scatter(x=df_p['collected_at'], y=df_p['price'], mode='lines', name=title[:20]))
+                if df_p.empty:
+                    df_p = collector.generate_mock_price_history(item['lprice'])
+                
+                # 기간 필터링
+                if selected_days_cmp is not None and not df_p.empty:
+                    max_date = df_p['collected_at'].max()
+                    cutoff_date = max_date - pd.Timedelta(days=selected_days_cmp)
+                    df_p_plot = df_p[df_p['collected_at'] >= cutoff_date]
+                else:
+                    df_p_plot = df_p
+                
+                fig_compare.add_trace(go.Scatter(
+                    x=df_p_plot['collected_at'], 
+                    y=df_p_plot['price'], 
+                    mode='lines+markers', 
+                    name=title[:25],
+                    line=dict(color=color, width=3),
+                    marker=dict(size=5, color=color),
+                    hovertemplate='%{x}<br>최저가: %{y:,.0f}원<extra></extra>'
+                ))
+
+                # 핵심 스펙 또는 단가 계산
+                unit_str = calculate_unit_price(title, item['lprice'])
+                spec_tags = item.get('spec_tags', [])
+                if unit_str != "-":
+                    spec_info = f"<span style='color:#115DCE; font-weight:700;'>{unit_str}</span>"
+                elif spec_tags:
+                    spec_info = f"<span style='color:#334155;'>{' / '.join(spec_tags[:3])}</span>"
+                else:
+                    spec_info = "<span style='color:#94A3B8;'>기본 모델</span>"
+
+                # AI 가격 분석 평가 배지
+                avg_p = df_p['price'].mean() if not df_p.empty else item['lprice']
+                min_p = df_p['price'].min() if not df_p.empty else item['lprice']
+                cur_p = item['lprice']
+                
+                if cur_p <= min_p * 1.02:
+                    eval_badge = '<span style="background:#DCFCE7; color:#15803D; padding:0.2rem 0.6rem; border-radius:4px; font-weight:800; font-size:0.85rem;">역대 최저가</span>'
+                elif cur_p < avg_p:
+                    eval_badge = '<span style="background:#E0F2FE; color:#0369A1; padding:0.2rem 0.6rem; border-radius:4px; font-weight:800; font-size:0.85rem;">평균 이하 (구매 추천)</span>'
+                else:
+                    eval_badge = '<span style="background:#FEF2F2; color:#B91C1C; padding:0.2rem 0.6rem; border-radius:4px; font-weight:800; font-size:0.85rem;">평균 이상 (보류 권장)</span>'
+
+                table_rows.append({
+                    "구분": f'<span style="color:{color}; font-weight:800;">● 상품 {idx+1}</span>',
+                    "상품명": title,
+                    "현재 최저가": f"<b>{item['lprice']:,}원</b>",
+                    "핵심 스펙 / 단가": spec_info,
+                    "AI 가격 평가": eval_badge
+                })
+
             fig_compare.update_layout(
-                hovermode="x unified", height=450,
+                margin=dict(l=0, r=0, t=20, b=0),
+                hovermode="x unified", height=420,
                 plot_bgcolor='#FFFFFF', paper_bgcolor='#FFFFFF',
-                xaxis=dict(showgrid=True, gridcolor='#F1F5F9'), yaxis=dict(showgrid=True, gridcolor='#F1F5F9')
+                xaxis=dict(showgrid=True, gridcolor='#F1F5F9'), yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_compare, use_container_width=True)
+
+            # 핵심 스펙 및 가격 평가 요약 비교표
+            st.markdown("<h5 style='margin:1.5rem 0 0.8rem 0; color:#0F172A; font-weight:800;'>상품별 스펙 및 AI 가격 평가 비교표</h5>", unsafe_allow_html=True)
+            df_table = pd.DataFrame(table_rows)
+            st.markdown(df_table.to_html(escape=False, index=False), unsafe_allow_html=True)
+        else:
+            st.info("비교할 상품이 선택되지 않았습니다. [상품검색] 탭에서 원하는 상품의 [+ 비교함 담기] 버튼을 누르시거나, 위 드롭다운에서 비교할 상품을 검색/선택해 보세요!")
     else:
-        st.info("비교할 수집 상품 데이터가 없습니다.")
+        st.info("비교함에 담긴 상품 또는 수집된 상품 데이터가 없습니다. 상품 검색 결과에서 [+ 비교함 담기] 버튼을 클릭해 보세요!")

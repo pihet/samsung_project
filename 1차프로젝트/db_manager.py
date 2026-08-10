@@ -210,3 +210,26 @@ def is_favorite(user_id, product_id, db_pass=None):
         return False
     finally:
         conn.close()
+
+def get_upcoming_sales_events(db_pass=None):
+    """PostgreSQL shopping_sales_events 테이블에서 다가오는 세일 이벤트 목록 조회"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return []
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT event_id, event_name, mall_name, event_type, start_date, end_date, 
+                       discount_rate_avg, recommend_action,
+                       (start_date - CURRENT_DATE) as days_left
+                FROM shopping_sales_events
+                WHERE end_date >= CURRENT_DATE
+                ORDER BY start_date ASC;
+            """)
+            rows = cur.fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
