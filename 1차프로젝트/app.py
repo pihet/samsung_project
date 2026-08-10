@@ -147,8 +147,8 @@ st.markdown("""
         align-items: center !important;
         margin: 0 !important;
     }
-    /* 검색창 input 덮어쓰기 */
-    div[data-testid="stTextInput"] input {
+    /* 검색창 전용 input & 버튼 스타일 (dnw-search-wrap 내부만 한정) */
+    .dnw-search-wrap div[data-testid="stTextInput"] input {
         border: none !important;
         border-radius: 0 !important;
         box-shadow: none !important;
@@ -158,8 +158,7 @@ st.markdown("""
         background: transparent !important;
         color: #0F172A !important;
     }
-    /* 검색 버튼 덮어쓰기 */
-    div[data-testid="stForm"] .stButton > button {
+    .dnw-search-wrap div[data-testid="stForm"] .stButton > button {
         background-color: #115DCE !important;
         color: #FFFFFF !important;
         height: 100% !important;
@@ -171,8 +170,24 @@ st.markdown("""
         width: 100% !important;
         transition: background-color 0.2s;
     }
-    div[data-testid="stForm"] .stButton > button:hover {
+    .dnw-search-wrap div[data-testid="stForm"] .stButton > button:hover {
         background-color: #0D4AA5 !important;
+    }
+
+    /* 비밀번호 입력창 내 눈동자(보기) 버튼 아이콘 정상 크기 리셋 */
+    div[data-baseweb="input"] button {
+        background-color: transparent !important;
+        border: none !important;
+        color: #64748B !important;
+        padding: 0 0.5rem !important;
+        min-height: auto !important;
+        height: auto !important;
+        width: auto !important;
+        box-shadow: none !important;
+    }
+    div[data-baseweb="input"] button:hover {
+        background-color: transparent !important;
+        color: #115DCE !important;
     }
     
     /* 일반 버튼 오버라이드 */
