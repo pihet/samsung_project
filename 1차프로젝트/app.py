@@ -730,45 +730,49 @@ if st.session_state.get('show_auth_modal'):
         
         with tab_login:
             st.markdown("<div style='font-size:0.9rem; color:#64748B; margin-bottom:0.8rem;'>가입하신 이메일과 비밀번호를 입력해 주세요.</div>", unsafe_allow_html=True)
-            login_email = st.text_input("이메일", key="login_email_input", placeholder="example@email.com")
-            login_pw = st.text_input("비밀번호", type="password", key="login_pw_input")
-            
-            if st.button("로그인하기", type="primary", use_container_width=True, key="btn_do_login"):
-                if not login_email or not login_pw:
-                    st.error("이메일과 비밀번호를 모두 입력해 주세요.")
-                else:
-                    success, res = db_manager.login_user(login_email, login_pw, db_pass=db_p)
-                    if success:
-                        st.session_state['user'] = res
-                        st.query_params['uid'] = res['user_id']
-                        st.success(f"{res['nickname']}님 환영합니다!")
-                        st.rerun()
+            with st.form("login_form", border=False):
+                login_email = st.text_input("이메일", key="login_email_input", placeholder="example@email.com")
+                login_pw = st.text_input("비밀번호", type="password", key="login_pw_input")
+                submit_login = st.form_submit_button("로그인하기", type="primary", use_container_width=True)
+                
+                if submit_login:
+                    if not login_email or not login_pw:
+                        st.error("이메일과 비밀번호를 모두 입력해 주세요.")
                     else:
-                        st.error(res)
-                        st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
+                        success, res = db_manager.login_user(login_email, login_pw, db_pass=db_p)
+                        if success:
+                            st.session_state['user'] = res
+                            st.query_params['uid'] = res['user_id']
+                            st.success(f"{res['nickname']}님 환영합니다!")
+                            st.rerun()
+                        else:
+                            st.error(res)
+                            st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
 
         with tab_signup:
             st.markdown("<div style='font-size:0.9rem; color:#64748B; margin-bottom:0.8rem;'>1초 만에 간편 회원가입 후 찜 목록 및 알림을 받아보세요.</div>", unsafe_allow_html=True)
-            signup_email = st.text_input("이메일 주소", key="signup_email_input", placeholder="example@email.com")
-            signup_nick = st.text_input("닉네임", key="signup_nick_input", placeholder="홍길동")
-            signup_pw = st.text_input("비밀번호", type="password", key="signup_pw_input")
-            signup_pw_confirm = st.text_input("비밀번호 확인", type="password", key="signup_pw_confirm_input")
-            
-            if st.button("회원가입 완료", type="primary", use_container_width=True, key="btn_do_signup"):
-                if not signup_email or not signup_nick or not signup_pw:
-                    st.error("모든 항목을 입력해 주세요.")
-                elif signup_pw != signup_pw_confirm:
-                    st.error("비밀번호 확인이 일치하지 않습니다.")
-                else:
-                    success, res = db_manager.register_user(signup_email, signup_pw, signup_nick, db_pass=db_p)
-                    if success:
-                        st.session_state['user'] = res
-                        st.query_params['uid'] = res['user_id']
-                        st.success(f"{res['nickname']}님 회원가입이 완료되었습니다!")
-                        st.rerun()
+            with st.form("signup_form", border=False):
+                signup_email = st.text_input("이메일 주소", key="signup_email_input", placeholder="example@email.com")
+                signup_nick = st.text_input("닉네임", key="signup_nick_input", placeholder="홍길동")
+                signup_pw = st.text_input("비밀번호", type="password", key="signup_pw_input")
+                signup_pw_confirm = st.text_input("비밀번호 확인", type="password", key="signup_pw_confirm_input")
+                submit_signup = st.form_submit_button("회원가입 완료", type="primary", use_container_width=True)
+                
+                if submit_signup:
+                    if not signup_email or not signup_nick or not signup_pw:
+                        st.error("모든 항목을 입력해 주세요.")
+                    elif signup_pw != signup_pw_confirm:
+                        st.error("비밀번호 확인이 일치하지 않습니다.")
                     else:
-                        st.error(res)
-                        st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
+                        success, res = db_manager.register_user(signup_email, signup_pw, signup_nick, db_pass=db_p)
+                        if success:
+                            st.session_state['user'] = res
+                            st.query_params['uid'] = res['user_id']
+                            st.success(f"{res['nickname']}님 회원가입이 완료되었습니다!")
+                            st.rerun()
+                        else:
+                            st.error(res)
+                            st.info("💡 사이드바(왼쪽 화살표)에서 PostgreSQL 비밀번호를 수정하신 후 다시 시도해 주세요.")
 
     render_auth_dialog()
 
