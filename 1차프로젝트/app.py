@@ -174,20 +174,9 @@ st.markdown("""
         background-color: #0D4AA5 !important;
     }
 
-    /* 비밀번호 입력창 내 눈동자(보기) 버튼 아이콘 정상 크기 리셋 */
+    /* 비밀번호 입력창 내 눈동자(보기) 버튼 완전 숨김 처리 */
     div[data-baseweb="input"] button {
-        background-color: transparent !important;
-        border: none !important;
-        color: #64748B !important;
-        padding: 0 0.5rem !important;
-        min-height: auto !important;
-        height: auto !important;
-        width: auto !important;
-        box-shadow: none !important;
-    }
-    div[data-baseweb="input"] button:hover {
-        background-color: transparent !important;
-        color: #115DCE !important;
+        display: none !important;
     }
     
     /* 일반 버튼 오버라이드 */
