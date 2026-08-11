@@ -338,6 +338,57 @@ def check_and_send_target_price_alerts(user_id, db_pass=None):
     finally:
         conn.close()
 
+def check_all_users_target_price_alerts(db_pass=None):
+    """모든 회원의 찜한 상품 중 목표가 이하로 하락한 품목을 일괄 탐지하여 이메일 자동 발송"""
+    conn = get_db_connection(password=db_pass)
+    if not conn:
+        return 0, "DB 연결 실패"
+
+    total_sent = 0
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT f.favorite_id, f.user_id, f.target_price, f.product_id, 
+                       p.title, p.link, u.email, u.nickname,
+                       COALESCE((
+                           SELECT price FROM price_history ph 
+                           WHERE ph.product_id = f.product_id 
+                           ORDER BY collected_at DESC LIMIT 1
+                       ), 0) as lprice
+                FROM favorites f
+                JOIN products p ON f.product_id = p.product_id
+                JOIN users u ON f.user_id = u.user_id
+                WHERE f.alert_enabled = TRUE
+                  AND (f.is_alert_sent IS FALSE OR f.is_alert_sent IS NULL);
+            """)
+            alerts = cur.fetchall()
+
+            for item in alerts:
+                lprice = item['lprice']
+                target_p = item['target_price']
+                if lprice > 0 and lprice <= target_p:
+                    success, msg = send_price_alert_email(
+                        to_email=item['email'],
+                        nickname=item['nickname'],
+                        product_title=item['title'],
+                        current_price=lprice,
+                        target_price=target_p,
+                        link=item['link'] if item['link'] else "https://www.danawa.com"
+                    )
+                    if success:
+                        cur.execute("UPDATE favorites SET is_alert_sent = TRUE WHERE favorite_id = %s;", (item['favorite_id'],))
+                        total_sent += 1
+
+            conn.commit()
+            print(f"[daily_collector.py] 배치 목표가 알림 메일 발송 완료: 총 {total_sent}건 발송됨")
+            return total_sent, f"전체 회원 목표가 알림 {total_sent}건 전송 완료"
+    except Exception as e:
+        conn.rollback()
+        print(f"[check_all_users_target_price_alerts error]: {e}")
+        return 0, f"배치 알림 오류: {e}"
+    finally:
+        conn.close()
+
 def remove_favorite(user_id, product_id, db_pass=None):
     """찜한 상품 제거"""
     conn = get_db_connection(password=db_pass)

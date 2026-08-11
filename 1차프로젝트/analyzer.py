@@ -120,6 +120,7 @@ def analyze_price_trend(df_history, days=None, upcoming_events=None):
         'badge_color': badge_color,
         'recommendation': recommendation,
         'ml_forecast': ml_forecast,
+        'sale_alerts': sale_alerts
     }
 
 def calculate_effective_price(lprice, card_discount_rate=0.05, pay_point_rate=0.01):

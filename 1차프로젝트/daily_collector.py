@@ -77,6 +77,10 @@ def run_daily_batch(db_pass=None):
     # 2. 3년 초과 오래된 데이터 정리
     cleanup_old_price_history(days=1095, db_pass=db_p)
 
+    # 3. 전체 회원의 찜한 상품 목표가 달성 여부 일괄 탐지 및 알림 메일 자동 발송
+    sent_cnt, alert_msg = db_manager.check_all_users_target_price_alerts(db_pass=db_p)
+    print(f"  [배치 알림] {alert_msg}")
+
     print(f"==================================================")
     print(f"[daily_collector.py] 배치 완료: 총 {collected_cnt}개 키워드 DB 갱신 완료")
     print(f"==================================================\n")

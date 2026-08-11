@@ -37,6 +37,30 @@ def init_db(db_pass=None):
             CREATE INDEX IF NOT EXISTS idx_price_history_pid_date ON price_history(product_id, collected_at);
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS shopping_sales_events (
+                event_id SERIAL PRIMARY KEY,
+                event_name TEXT NOT NULL,
+                mall_name TEXT NOT NULL,
+                event_type TEXT,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                discount_rate_avg INT DEFAULT 15,
+                recommend_action TEXT DEFAULT 'WAIT'
+            );
+        """)
+
+        # 테이블이 비어있거나 세일 이벤트가 없으면 샘플 세일 캘린더 자동 팝퓰레이트
+        cursor.execute("SELECT COUNT(*) FROM shopping_sales_events;")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO shopping_sales_events (event_name, mall_name, event_type, start_date, end_date, discount_rate_avg, recommend_action)
+                VALUES 
+                ('G마켓/옥션 빅스마일데이', 'G마켓', '대형 브랜드 세일', CURRENT_DATE + INTERVAL '2 days', CURRENT_DATE + INTERVAL '9 days', 20, 'WAIT'),
+                ('쿠팡 와우 빅세일', '쿠팡', '와우회원 전용 세일', CURRENT_DATE + INTERVAL '4 days', CURRENT_DATE + INTERVAL '11 days', 18, 'WAIT'),
+                ('11번가 십일절 브랜드위크', '11번가', '월간 정기 세일', CURRENT_DATE + INTERVAL '6 days', CURRENT_DATE + INTERVAL '13 days', 15, 'WAIT');
+            """)
+
         conn.commit()
         conn.close()
     except Exception as e:

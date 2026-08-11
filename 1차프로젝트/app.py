@@ -220,6 +220,27 @@ st.markdown("""
         color: #115DCE !important;
     }
 
+    /* CSV 다운로드 버튼 우측 상단 배치 컴팩트 스타일 */
+    .stDownloadButton > button {
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+        padding: 0.25rem 0.6rem !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        line-height: 1.2 !important;
+        border-radius: 5px !important;
+        border: 1px solid #CBD5E1 !important;
+        color: #334155 !important;
+        background-color: #FFFFFF !important;
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+    }
+    .stDownloadButton > button:hover {
+        border-color: #115DCE !important;
+        color: #115DCE !important;
+        background-color: #F8FAFC !important;
+    }
+
     /* GNB 우측 회원 정보 및 로그아웃 버튼 스타일 */
     .dnw-logout-btn {
         display: inline-block !important;
@@ -622,8 +643,51 @@ def show_product_detail_dialog(selected):
 
     st.markdown("<div style='font-size:1.1rem; font-weight:800; color:#0F172A; margin-bottom:0.5rem;'>가격변동 및 AI예측 차트</div>", unsafe_allow_html=True)
     
-    # 조회 기간 필터 (1개월, 3개월, 6개월, 1년, 전체 - 기본 3개월 index=1)
-    timeframe = st.radio("조회 기간", ["1개월", "3개월", "6개월", "1년", "전체"], index=1, horizontal=True, label_visibility="collapsed", key=f"tf_{selected['product_id']}")
+    # 엑셀(CSV) 내보내기 데이터 사전 준비
+    csv_rows = []
+    if not df_hist.empty and 'collected_at' in df_hist.columns and 'price' in df_hist.columns:
+        for _, r in df_hist.iterrows():
+            c_eff_p, c_sav, _, _ = analyzer.calculate_effective_price(int(r['price']))
+            csv_rows.append({
+                "수집일자": pd.to_datetime(r['collected_at']).strftime("%Y-%m-%d %H:%M"),
+                "상품명": selected['title'],
+                "최저가(원)": int(r['price']),
+                "체감가(원)": c_eff_p,
+                "할인혜택(원)": c_sav,
+                "구분": "실제 최저가 수집 이력"
+            })
+
+    if ml and ml.get('forecast_df') is not None and not ml['forecast_df'].empty:
+        for _, r in ml['forecast_df'].iterrows():
+            c_eff_p, c_sav, _, _ = analyzer.calculate_effective_price(int(r['price']))
+            csv_rows.append({
+                "수집일자": pd.to_datetime(r['collected_at']).strftime("%Y-%m-%d"),
+                "상품명": selected['title'],
+                "최저가(원)": int(r['price']),
+                "체감가(원)": c_eff_p,
+                "할인혜택(원)": c_sav,
+                "구분": "AI 14일 미래 예측가"
+            })
+
+    df_export = pd.DataFrame(csv_rows) if csv_rows else pd.DataFrame()
+    csv_bytes = df_export.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig') if not df_export.empty else b""
+
+    # 조회 기간 필터 (좌측) + CSV 다운로드 버튼 (동일 행 우측 끝 밀착 배치)
+    c_tf1, c_tf2 = st.columns([0.78, 0.22])
+    with c_tf1:
+        timeframe = st.radio("조회 기간", ["1개월", "3개월", "6개월", "1년", "전체"], index=1, horizontal=True, label_visibility="collapsed", key=f"tf_{selected['product_id']}")
+    with c_tf2:
+        if csv_bytes:
+            clean_file_id = str(selected.get('product_id', 'report'))
+            st.download_button(
+                label="CSV 다운로드",
+                data=csv_bytes,
+                file_name=f"BuyOrWait_가격분석_{clean_file_id}.csv",
+                mime="text/csv",
+                key=f"btn_dl_csv_{selected['product_id']}",
+                use_container_width=True
+            )
+
     days_map = {"1개월": 30, "3개월": 90, "6개월": 180, "1년": 365, "전체": None}
     selected_days = days_map[timeframe]
 
