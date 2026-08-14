@@ -154,7 +154,7 @@ def add_favorite(user_id, product, target_price=None, db_pass=None):
             """, (user_id, p_id, target_price))
 
             cur.execute("""
-                INSERT INTO price_history (product_id, price, collected_at)
+                INSERT INTO raw_price_logs (product_id, raw_price, crawled_at)
                 VALUES (%s, %s, CURRENT_TIMESTAMP);
             """, (p_id, int(product.get('lprice', 0))))
 
@@ -351,9 +351,9 @@ def check_all_users_target_price_alerts(db_pass=None):
                 SELECT f.favorite_id, f.user_id, f.target_price, f.product_id, 
                        p.title, p.link, u.email, u.nickname,
                        COALESCE((
-                           SELECT price FROM price_history ph 
-                           WHERE ph.product_id = f.product_id 
-                           ORDER BY collected_at DESC LIMIT 1
+                           SELECT raw_price FROM raw_price_logs rpl 
+                           WHERE rpl.product_id = f.product_id 
+                           ORDER BY crawled_at DESC LIMIT 1
                        ), 0) as lprice
                 FROM favorites f
                 JOIN products p ON f.product_id = p.product_id
@@ -361,6 +361,7 @@ def check_all_users_target_price_alerts(db_pass=None):
                 WHERE f.alert_enabled = TRUE
                   AND (f.is_alert_sent IS FALSE OR f.is_alert_sent IS NULL);
             """)
+
             alerts = cur.fetchall()
 
             for item in alerts:
@@ -421,15 +422,16 @@ def get_user_favorites(user_id, db_pass=None):
                 SELECT f.favorite_id, f.target_price, f.alert_enabled, f.created_at as favorited_at,
                        p.product_id, p.title, p.category, p.image_url, p.mall_name, p.link,
                        COALESCE((
-                           SELECT price FROM price_history ph 
-                           WHERE ph.product_id = p.product_id 
-                           ORDER BY collected_at DESC LIMIT 1
+                           SELECT raw_price FROM raw_price_logs rpl 
+                           WHERE rpl.product_id = p.product_id 
+                           ORDER BY crawled_at DESC LIMIT 1
                        ), 0) as lprice
                 FROM favorites f
                 JOIN products p ON f.product_id = p.product_id
                 WHERE f.user_id = %s
                 ORDER BY f.created_at DESC;
             """, (user_id,))
+
             rows = cur.fetchall()
             return [dict(r) for r in rows]
     except Exception as e:
