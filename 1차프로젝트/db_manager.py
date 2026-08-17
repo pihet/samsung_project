@@ -11,7 +11,7 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "buyorwait_db")
 DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASS", "1111")
+DB_PASS = os.getenv("DB_PASS") or os.getenv("DB_PASSWORD", "1111")
 
 def get_db_connection(host=None, port=None, dbname=None, user=None, password=None):
     """PostgreSQL 데이터베이스 연결 객체 생성"""
