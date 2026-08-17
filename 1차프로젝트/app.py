@@ -1386,11 +1386,13 @@ with tab3:
                 color = CMP_COLORS[idx % len(CMP_COLORS)]
                 
                 df_p = get_price_history(pid)
-                if df_p.empty:
-                    df_p = collector.generate_mock_price_history(item['lprice'])
+                if df_p.empty or 'collected_at' not in df_p.columns or len(df_p) < 3:
+                    df_p = collector.generate_mock_price_history(pid, item['lprice'])
+                    if df_p is None or df_p.empty:
+                        df_p = pd.DataFrame(columns=['price', 'collected_at'])
                 
                 # 기간 필터링
-                if selected_days_cmp is not None and not df_p.empty:
+                if selected_days_cmp is not None and not df_p.empty and 'collected_at' in df_p.columns and df_p['collected_at'].notna().any():
                     max_date = df_p['collected_at'].max()
                     cutoff_date = max_date - pd.Timedelta(days=selected_days_cmp)
                     df_p_plot = df_p[df_p['collected_at'] >= cutoff_date]
