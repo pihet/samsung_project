@@ -114,6 +114,8 @@ def save_product_and_price(product_id, title, category, image_url, mall_name, li
 
     try:
         conn = get_connection(db_pass=db_pass)
+        if not conn:
+            return
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -145,6 +147,8 @@ def bulk_save_price_history(product_id, title, category, image_url, mall_name, l
         
     try:
         conn = get_connection(db_pass=db_pass)
+        if not conn:
+            return
         cursor = conn.cursor()
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -174,6 +178,8 @@ def get_price_history(product_id, db_pass=None):
     """PostgreSQL 특정 상품의 시계열 가격 이력을 Pandas DataFrame으로 초고속 반환 (Data Mart 우선)"""
     try:
         conn = get_connection(db_pass=db_pass)
+        if not conn:
+            return pd.DataFrame()
         query_mart = """
             SELECT price_clean as price, dt as collected_at 
             FROM dm_daily_price_clean 
@@ -202,6 +208,8 @@ def get_all_products(db_pass=None):
     """PostgreSQL 저장된 모든 상품 목록 조회"""
     try:
         conn = get_connection(db_pass=db_pass)
+        if not conn:
+            return pd.DataFrame()
         query = "SELECT * FROM products ORDER BY updated_at DESC"
         df = pd.read_sql_query(query, conn)
         conn.close()

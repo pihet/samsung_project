@@ -7,6 +7,7 @@ import hashlib
 import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import pandas as pd
 from database import save_product_and_price, get_price_history, bulk_save_price_history
 
 def search_shopping_products_realtime(query, display=40):
@@ -287,16 +288,24 @@ def generate_mock_price_history(product_id, base_price, days=1095, pattern="auto
         simulated_price = max(100, int(base_price * multiplier))
         records.append((simulated_price, target_date))
 
-    bulk_save_price_history(
-        product_id=product_id,
-        title="Sample Product",
-        category="Sample",
-        image_url="",
-        mall_name="Sample Mall",
-        link="",
-        history_records=records
-    )
+    df_records = pd.DataFrame(records, columns=['price', 'collected_at'])
+    df_records['collected_at'] = pd.to_datetime(df_records['collected_at'])
+
+    try:
+        bulk_save_price_history(
+            product_id=product_id,
+            title="Sample Product",
+            category="Sample",
+            image_url="",
+            mall_name="Sample Mall",
+            link="",
+            history_records=records
+        )
+    except Exception as e:
+        print(f"[collector.py] DB bulk save error: {e}")
+        
     random.seed()  # 시드 초기화
+    return df_records
 
 from concurrent.futures import ThreadPoolExecutor
 

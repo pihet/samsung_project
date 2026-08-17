@@ -496,11 +496,19 @@ def show_product_detail_dialog(selected):
         link=selected['link'],
         price=lprice
     )
-    generate_mock_price_history(selected['product_id'], lprice, days=1095, pattern="auto")
+    df_generated = generate_mock_price_history(selected['product_id'], lprice, days=1095, pattern="auto")
     
     eff_p, tot_sav, c_disc, p_point = analyzer.calculate_effective_price(lprice)
 
     df_hist = get_price_history(selected['product_id'])
+    if df_hist.empty or 'collected_at' not in df_hist.columns or len(df_hist) < 3:
+        if df_generated is not None and not df_generated.empty:
+            df_hist = df_generated
+        else:
+            df_hist = generate_mock_price_history(selected['product_id'], lprice, days=1095, pattern="auto")
+            if df_hist is None or df_hist.empty:
+                df_hist = pd.DataFrame(columns=['price', 'collected_at'])
+
     db_p = st.session_state.get('db_pass', '1111')
     sales_events = db_manager.get_upcoming_sales_events(db_pass=db_p)
     analysis = analyze_price_trend(df_hist, days=180, upcoming_events=sales_events)
@@ -691,17 +699,17 @@ def show_product_detail_dialog(selected):
     days_map = {"1개월": 30, "3개월": 90, "6개월": 180, "1년": 365, "전체": None}
     selected_days = days_map[timeframe]
 
-    if selected_days is not None:
+    if selected_days is not None and not df_hist.empty and 'collected_at' in df_hist.columns and df_hist['collected_at'].notna().any():
         cutoff = pd.to_datetime(df_hist['collected_at'].max()) - pd.Timedelta(days=selected_days)
         df_plot = df_hist[df_hist['collected_at'] >= cutoff]
     else:
         df_plot = df_hist
 
-    avg_p = analysis['avg_price']
+    avg_p = analysis.get('avg_price', 0)
     fig = go.Figure()
 
-    x_vals = df_plot['collected_at'].tolist()
-    y_vals = df_plot['price'].tolist()
+    x_vals = df_plot['collected_at'].tolist() if (not df_plot.empty and 'collected_at' in df_plot.columns) else []
+    y_vals = df_plot['price'].tolist() if (not df_plot.empty and 'price' in df_plot.columns) else []
 
     # 평균선(avg_p) 교차점 정밀 분할 알고리즘
     split_x = []
