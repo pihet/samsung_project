@@ -1,25 +1,25 @@
-# 🛒 BuyOrWait : 실시간 최저가 구매 타이밍 추천 및 AI 시계열 예측 플랫폼
+# BuyOrWait : 실시간 최저가 구매 타이밍 추천 및 AI 시계열 예측 플랫폼
 
 > **삼성 프로젝트 1차 결과보고서 (BuyOrWait)**  
 > 이커머스 플랫폼의 상시 할인(가짜 할인) 눈속임을 감지하고, **3계층 데이터 웨어하우스(DW)** 및 **통계적 시계열 AI 모델(Auto-ARIMA)**을 결합하여 향후 14일간의 미래 가격 파동을 예측해 주는 스마트 쇼핑 구매 타이밍 의사결정 웹 서비스입니다.
 
 ---
 
-## 📌 1. 프로젝트 핵심 기능 (Key Features)
+## 1. 프로젝트 핵심 기능 (Key Features)
 
-1. **🔍 다나와 실시간 최저가 수집 & 스펙 파싱 (`collector.py`)**
+1. ** 다나와 실시간 최저가 수집 & 스펙 파싱 (`collector.py`)**
    - 다나와 정식 상품 코드(`pcode`), 실시간 최저가, 판매처, 대표 이미지, 규격 스펙 자동 수집 및 정제.
 2. **🏛️ PostgreSQL 3계층 데이터 웨어하우스 & 데이터 마트 (`database.py`)**
    - **Layer 1 (Raw Ingestion)**: `raw_price_logs` (원천 1회성 크롤링 수집 로그 100% 영구 보존)
    - **Layer 2 (Data Mart)**: `dm_daily_price_clean` (5단계 정밀 전처리 완료 일별 시계열 데이터 마트)
    - **Layer 2 (Forecast Mart)**: `dm_model_forecasts` (Auto-ARIMA 14일 미래 예측가 및 MAPE 오차 보관)
    - **Layer 3 (Serving Mart)**: `product_price_summary` (Streamlit 웹 화면 0.001초 실시간 서빙)
-3. **🤖 통계적 시계열 AI 파이프라인 & 14일 미래 예측 (`ml_forecaster.py` & `report.ipynb`)**
+3. ** 통계적 시계열 AI 파이프라인 & 14일 미래 예측 (`ml_forecaster.py` & `report.ipynb`)**
    - **ADF + KPSS 3-Way 동적 정상성 검정**: 단위근 및 비정상성 진단 시 1차 차분($d=1$) 적용으로 100% 정상성 확보.
    - **3-Fold Walk-Forward CV**: 시간 순서를 준수하는 교차 검증을 통해 `Auto-ARIMA` 1위 최적 모델 동적 채택.
    - **융-박스(Ljung-Box) 잔차 진단**: $p \ge 0.05$ ($p=0.871$) 도출로 오차가 순수 무작위 화이트 노이즈(White Noise) 상태임을 학술적 검증.
    - **백테스팅 오차 감축 실증**: Raw(2.44%) 대비 Preprocessed(1.24%) 백테스팅으로 **1.20%p 오차 감축 실증 완료**.
-4. **📧 bcrypt 보안 회원가입 & Resend API 이메일 알림 (`db_manager.py`)**
+4. ** bcrypt 보안 회원가입 & Resend API 이메일 알림 (`db_manager.py`)**
    - `bcrypt` 비밀번호 단방향 암호화 해시 및 찜한 상품이 목표가 이하로 하락 시 Resend API 자동 이메일 발송.
 
 ---
@@ -56,7 +56,7 @@
 
 ---
 
-## 🚀 3. 초보자를 위한 단계별 설치 및 실행 순서 (Step-by-Step Guide)
+## 3. 초보자를 위한 단계별 설치 및 실행 순서 (Step-by-Step Guide)
 
 새로운 환경에서 프로젝트를 처음 실행할 때 **1번부터 5번까지 순서대로 실행**해 주세요.
 
@@ -120,7 +120,7 @@ streamlit run app.py
 
 ---
 
-## 📂 4. 디렉토리 구조 및 핵심 파일 안내 (Project Structure)
+## 4. 디렉토리 구조 및 핵심 파일 안내 (Project Structure)
 
 ```text
 1차프로젝트/
@@ -156,7 +156,3 @@ streamlit run app.py
 - **`shopping_sales_events`**: 쇼핑몰 세일 캘린더 이벤트 테이블
 
 ---
-
-## 📜 6. 라이선스 및 문의 (License & Info)
-- **팀 프로젝트**: TEAM 1조 (김○○, 박○○, 정○○ / 멘토: 이○○)
-- **저작권**: Copyright (c) 2026 BuyOrWait Team. All Rights Reserved.
