@@ -142,7 +142,7 @@ streamlit run app.py
 
 ---
 
-## 🏛️ 5. PostgreSQL 3계층 DW ERD 스키마 (`buyorwait_db`)
+##5. PostgreSQL 3계층 DW ERD 스키마 (`buyorwait_db`)
 
 본 시스템은 **Star Schema 구조의 3계층 데이터 웨어하우스**로 작동하며, 8개 전체 테이블이 `products(product_id)` 및 `users(user_id)`를 중심으로 **100% 참조 무결성(ON DELETE CASCADE)**을 보장합니다.
 
