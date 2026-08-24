@@ -18,15 +18,15 @@ kubectl get pods -n minio -w
 
 ## 🌐 Step 2. MinIO 웹 대시보드 접속 (포트포워딩)
 
-별도의 터미널 창을 열고 아래 명령어를 실행합니다:
+MinIO 콘솔과 S3 API가 원활하게 통신할 수 있도록 **9000번(API)과 9001번(콘솔)** 포트를 동시에 포트포워딩합니다:
 
 ```bash
-# MinIO 웹 콘솔(9001) 포트포워딩
-kubectl port-forward -n minio svc/minio-service 9001:9001
+# S3 API(9000) 및 웹 콘솔(9001) 동시 포트포워딩
+kubectl port-forward -n minio svc/minio-service 9000:9000 9001:9001
 ```
 
 - 🖥️ **웹 대시보드 URL:** [http://localhost:9001](http://localhost:9001)
-- 🔑 **기본 로그인 계정:**
+- 🔑 **로그인 계정:**
   - **Username:** `minioadmin`
   - **Password:** `minioadmin123`
 
