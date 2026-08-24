@@ -1,3 +1,4 @@
+```mermaid
 flowchart TD
     subgraph DataIngestion ["1. 데이터 수집 & 스트리밍"]
         DB[(로컬 DB)] -->|CDC / Log Ingestion| Connect[Kafka Connect]
