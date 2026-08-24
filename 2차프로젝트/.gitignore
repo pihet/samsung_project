@@ -1,0 +1,115 @@
+# ==========================================
+# Kubernetes & Cloud Native
+# ==========================================
+# Kubeconfig & Cluster configs
+*.kubeconfig
+kubeconfig
+kubeconfig.yaml
+.kube/
+
+# Certificates, Keys & Secrets (보안 민감 파일)
+*.key
+*.pem
+*.crt
+*.csr
+*.p12
+*.jks
+*.keystore
+*.truststore
+*secret*.yaml
+*secret*.yml
+!*secret*.example.yaml
+
+# Helm
+*.tgz
+helm-debug.log
+.helm/
+
+# ==========================================
+# Data Engineering (Airflow, Spark, Kafka)
+# ==========================================
+# Airflow
+airflow.db
+airflow.cfg
+airflow-webserver.pid
+unittests.cfg
+logs/
+airflow/logs/
+
+# Spark / Java / Scala
+*.class
+*.jar
+*.war
+*.ear
+target/
+.gradle/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+
+# ==========================================
+# Environment Variables & Local Configs
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.local.yaml
+*.local.yml
+
+# ==========================================
+# IDE & Editors
+# ==========================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ==========================================
+# OS Generated Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
+*.log
+tmp/
+temp/
+scratch/
+
+# ==========================================
+# AI Assistant & Local Agent Configs
+# ==========================================
+AGENTS.md
+agent.md
+.agents/
+.gemini/
+

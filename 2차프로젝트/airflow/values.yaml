@@ -1,0 +1,49 @@
+# airflow/values.yaml
+
+# 1. 태스크 실행 시에만 K8s 파드를 동적으로 띄우는 KubernetesExecutor 선택
+executor: "KubernetesExecutor"
+
+# 2. 불필요한 데몬 비활성화로 RAM 절약
+triggerer:
+  enabled: false
+statsd:
+  enabled: false
+
+# 3. 배포 즉시 admin/admin 계정 자동 생성
+webserver:
+  replicas: 1
+  defaultUser:
+    enabled: true
+    role: Admin
+    username: admin
+    password: admin
+    email: admin@example.com
+    firstName: Admin
+    lastName: User
+
+# 4. 스케줄러 1대
+scheduler:
+  replicas: 1
+
+# 5. 메타데이터 DB (PostgreSQL 5Gi)
+postgresql:
+  enabled: true
+  persistence:
+    size: 5Gi
+
+# 6. 로그 저장용 영구 볼륨 (워커 파드가 삭제되어도 웹 UI에서 로그 영구 보존 ⭐)
+logs:
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# 7. 파이썬 DAG 파일 Git-Sync 자동 동기화 ⭐ (persistence 대신 emptyDir로 모든 파드에 git-sync 사이드카 연동)
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: true
+    repo: https://github.com/pihet/k8s_study.git
+    branch: main
+    subPath: airflow/dags
+    wait: 30

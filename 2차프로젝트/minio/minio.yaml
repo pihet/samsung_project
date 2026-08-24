@@ -1,0 +1,100 @@
+# samsung_project/2차프로젝트/minio/minio.yaml
+# [로컬 S3 스토리지] MinIO 배포 매니페스트 (S3 API: 9000, 웹 대시보드: 9001)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-secret
+  namespace: minio
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: "minioadmin"
+  MINIO_ROOT_PASSWORD: "minioadmin123"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: minio
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: "quay.io/minio/minio:RELEASE.2024-08-03T04-33-23Z"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - minio server /data --console-address ":9001"
+          envFrom:
+            - secretRef:
+                name: minio-secret
+          ports:
+            - name: s3-api
+              containerPort: 9000
+            - name: web-console
+              containerPort: 9001
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+          volumeMounts:
+            - name: minio-storage
+              mountPath: /data
+      volumes:
+        - name: minio-storage
+          persistentVolumeClaim:
+            claimName: minio-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: minio
+spec:
+  type: ClusterIP
+  selector:
+    app: minio
+  ports:
+    - name: s3-api
+      port: 9000
+      targetPort: 9000
+    - name: web-console
+      port: 9001
+      targetPort: 9001
