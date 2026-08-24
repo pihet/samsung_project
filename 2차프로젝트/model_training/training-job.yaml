@@ -1,0 +1,50 @@
+# model_training/training-job.yaml
+# [Keras 딥러닝 온디맨드 학습 파드] MinIO 피처를 읽어 딥러닝 학습 후 모델 저장소에 자동 등록하는 K8s Job
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keras-model-training-job
+  namespace: default
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      name: keras-training-pod
+      labels:
+        app: dl-trainer
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: trainer
+          image: "python:3.11-slim"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "📦 Installing required ML packages..."
+              pip install --no-cache-dir boto3 pandas pyarrow tensorflow
+              echo "🚀 Starting Deep Learning Training Script..."
+              python /opt/scripts/train.py
+          env:
+            - name: MINIO_ENDPOINT
+              value: "http://minio-service.minio.svc:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin123"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1024Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2048Mi"
+          volumeMounts:
+            - name: script-vol
+              mountPath: /opt/scripts
+      volumes:
+        - name: script-vol
+          configMap:
+            name: keras-training-script
