@@ -1,8 +1,9 @@
 # spark/apps/spark_kafka_consumer.py
 """
-[실전 PySpark 분산 처리 애플리케이션]
-Kafka [my-topic]에서 SCRAM-SHA-512 보안 인증을 거쳐 실시간 주문 데이터를 읽어온 뒤,
-유저별 총 주문 금액 집계 및 인기 상품 매출 통계를 분산 병렬 계산하는 Spark Job
+[실전 PySpark 분산 처리 & MinIO 데이터 레이크 적재 파이프라인]
+1. Kafka [my-topic]에서 SCRAM-SHA-512 보안 인증을 거쳐 실시간 주문 데이터를 읽어옴
+2. 고객별/상품별 분산 통계 집계 수행
+3. MinIO S3 스토리지 [s3a://features/orders]에 Parquet 포맷으로 고속 영속 저장
 """
 
 import sys
@@ -12,15 +13,20 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType
 
 def main():
     print("=========================================================")
-    print("🚀 Starting Spark Kafka Distributed Processing Application")
+    print("🚀 Starting Spark Kafka ➔ MinIO Data Lake Pipeline")
     print("=========================================================")
 
-    # 1. SparkSession 생성
+    # 1. SparkSession 생성 (MinIO S3A 설정 포함)
     spark = SparkSession.builder \
-        .appName("KafkaOrderDistributedAnalytics") \
+        .appName("KafkaToMinIOOrderPipeline") \
+        .config("spark.hadoop.fs.s3a.endpoint", "http://minio-service.minio.svc:9000") \
+        .config("spark.hadoop.fs.s3a.access.key", "minioadmin") \
+        .config("spark.hadoop.fs.s3a.secret.key", "minioadmin123") \
+        .config("spark.hadoop.fs.s3a.path.style.access", "true") \
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
         .getOrCreate()
 
-    # 로그 레벨 조정 (불필요한 WARN 축소)
     spark.sparkContext.setLogLevel("WARN")
 
     # 2. 주문 데이터 JSON 스키마 정의
@@ -43,13 +49,13 @@ def main():
         .option("kafka.sasl.jaas.config", 'org.apache.kafka.common.security.scram.ScramLoginModule required username="my-app-user" password="uk2eajtu8WM5lGgAemy5F8l3qoJh5mwz";') \
         .load()
 
-    # 4. JSON 바이너리 데이터를 문자열 및 컬럼으로 파싱
+    # 4. JSON 바이너리 데이터를 구조화된 테이블로 파싱
     parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
         .select(from_json(col("json_str"), order_schema).alias("data")) \
         .select("data.*") \
         .filter(col("order_id").isNotNull())
 
-    print("\n📦 [1단계] Kafka my-topic에서 추출한 원천 주문 데이터 목록:")
+    print("\n📦 [1단계] Kafka에서 읽어온 원천 주문 데이터 목록:")
     parsed_df.show(truncate=False)
 
     print("\n👤 [2단계] 고객(User)별 총 구매 금액 및 주문 횟수 분산 집계:")
@@ -60,15 +66,19 @@ def main():
         .orderBy(col("total_spent_krw").desc())
     user_summary.show(truncate=False)
 
-    print("\n🏆 [3단계] 상품(Item)별 총 매출 순위 집계 (인기 상품 랭킹):")
-    item_summary = parsed_df.groupBy("item") \
-        .sum("amount") \
-        .withColumnRenamed("sum(amount)", "total_sales_krw") \
-        .orderBy(col("total_sales_krw").desc())
-    item_summary.show(truncate=False)
+    # 5. MinIO 로컬 S3 [features] 버킷에 Parquet 포맷으로 영속 저장 ⭐
+    print("\n💾 [3단계] MinIO 로컬 S3 스토리지(s3a://features/orders)에 Parquet 저장 시작...")
+    
+    parsed_df.write \
+        .mode("overwrite") \
+        .parquet("s3a://features/orders")
+
+    user_summary.write \
+        .mode("overwrite") \
+        .parquet("s3a://features/user_summary")
 
     print("=========================================================")
-    print("✅ All Spark Distributed Processing Completed Successfully!")
+    print("✅ All Spark Data Successfully Saved to MinIO S3 (features Bucket)!")
     print("=========================================================")
 
     spark.stop()
