@@ -1,0 +1,74 @@
+# serving/k8s/fastapi-serving.yaml
+# [FastAPI 고가용성 실시간 서빙 Deployment & Service]
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-serving
+  namespace: default
+  labels:
+    app: fastapi-serving
+spec:
+  replicas: 2               # 👈 2대의 서빙 파드로 로드밸런싱 및 무중단 고가용성(HA) 제공
+  selector:
+    matchLabels:
+      app: fastapi-serving
+  template:
+    metadata:
+      labels:
+        app: fastapi-serving
+    spec:
+      containers:
+        - name: fastapi-server
+          image: "python:3.11-slim"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "📦 Installing FastAPI and ML Serving packages..."
+              pip install --no-cache-dir fastapi uvicorn boto3 tensorflow numpy pydantic
+              echo "🚀 Launching Uvicorn ASGI Server..."
+              python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+          workingDir: /opt
+          env:
+            - name: MINIO_ENDPOINT
+              value: "http://minio-service.minio.svc:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin123"
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "300m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "1536Mi"
+          volumeMounts:
+            - name: app-code
+              mountPath: /opt/app
+      volumes:
+        - name: app-code
+          configMap:
+            name: fastapi-serving-app
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-service
+  namespace: default
+  labels:
+    app: fastapi-serving
+spec:
+  type: ClusterIP
+  selector:
+    app: fastapi-serving
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
