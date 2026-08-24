@@ -1,0 +1,78 @@
+# frontend/k8s/react-frontend.yaml
+# [React 프론트엔드 대시보드 Deployment & Service]
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: react-frontend
+  namespace: default
+  labels:
+    app: react-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: react-frontend
+  template:
+    metadata:
+      labels:
+        app: react-frontend
+    spec:
+      containers:
+        - name: react-app
+          image: "node:18-alpine"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "📦 Installing React dependencies and starting dev server..."
+              cd /app
+              npm install --silent
+              npm start
+          workingDir: /app
+          ports:
+            - name: http
+              containerPort: 3000
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+          volumeMounts:
+            - name: frontend-src
+              mountPath: /app/src
+            - name: frontend-public
+              mountPath: /app/public
+            - name: frontend-pkg
+              mountPath: /app/package.json
+              subPath: package.json
+      volumes:
+        - name: frontend-src
+          configMap:
+            name: react-src-code
+        - name: frontend-public
+          configMap:
+            name: react-public-code
+        - name: frontend-pkg
+          configMap:
+            name: react-pkg-code
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: react-frontend-service
+  namespace: default
+  labels:
+    app: react-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: react-frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
