@@ -26,15 +26,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "📦 Preparing React application..."
+              echo "📦 Initializing React project workspace..."
               mkdir -p /app/src /app/public
-              cp -r /opt/src/* /app/src/ 2>/dev/null || true
-              cp -r /opt/public/* /app/public/ 2>/dev/null || true
-              cp /opt/package.json /app/package.json
+              cp -L -r /opt/src/. /app/src/
+              cp -L -r /opt/public/. /app/public/
+              cp -L /opt/package.json /app/package.json
               cd /app
-              echo "📦 Installing npm dependencies (react, react-dom, react-scripts)..."
+              echo "📂 Workspace files verified:"
+              ls -la /app/public /app/src
+              echo "📦 Installing dependencies..."
               npm install --silent
-              echo "🚀 Starting React Dev Server (HOST=0.0.0.0 PORT=3000)..."
+              echo "�� Starting React Dev Server on 0.0.0.0:3000..."
               export HOST=0.0.0.0
               export DANGEROUSLY_DISABLE_HOST_CHECK=true
               npm start
