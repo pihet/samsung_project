@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
+// FastAPI 백엔드 엔드포인트 URL (포트 8000) ⭐
+const API_BASE = 'http://localhost:8000';
+
 function App() {
   const [amount, setAmount] = useState(2500000);
   const [hour, setHour] = useState(14);
@@ -14,7 +17,7 @@ function App() {
 
   // 1. 초기 헬스체크 및 모델 정보 로드
   useEffect(() => {
-    fetch('/health')
+    fetch(`${API_BASE}/health`)
       .then(res => res.json())
       .then(data => {
         if (data.model_metadata && data.model_metadata.final_accuracy) {
@@ -31,7 +34,7 @@ function App() {
   const handlePredict = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/predict', {
+      const res = await fetch(`${API_BASE}/predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -65,7 +68,7 @@ function App() {
   // 3. 모델 무중단 핫 리로드
   const handleReload = async () => {
     try {
-      const res = await fetch('/reload-model', { method: 'POST' });
+      const res = await fetch(`${API_BASE}/reload-model`, { method: 'POST' });
       const data = await res.json();
       alert('✅ MinIO로부터 최신 딥러닝 모델이 성공적으로 핫 리로드되었습니다!');
     } catch (err) {
