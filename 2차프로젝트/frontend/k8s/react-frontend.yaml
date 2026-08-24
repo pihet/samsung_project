@@ -26,9 +26,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "📦 Installing React dependencies and starting dev server..."
+              echo "📦 Preparing React application..."
+              mkdir -p /app/src /app/public
+              cp -r /opt/src/* /app/src/ 2>/dev/null || true
+              cp -r /opt/public/* /app/public/ 2>/dev/null || true
+              cp /opt/package.json /app/package.json
               cd /app
+              echo "📦 Installing npm dependencies (react, react-dom, react-scripts)..."
               npm install --silent
+              echo "🚀 Starting React Dev Server (HOST=0.0.0.0 PORT=3000)..."
+              export HOST=0.0.0.0
+              export DANGEROUSLY_DISABLE_HOST_CHECK=true
               npm start
           workingDir: /app
           ports:
@@ -36,18 +44,18 @@ spec:
               containerPort: 3000
           resources:
             requests:
-              cpu: "200m"
-              memory: "256Mi"
+              cpu: "300m"
+              memory: "512Mi"
             limits:
-              cpu: "1000m"
-              memory: "1024Mi"
+              cpu: "1500m"
+              memory: "1536Mi"
           volumeMounts:
             - name: frontend-src
-              mountPath: /app/src
+              mountPath: /opt/src
             - name: frontend-public
-              mountPath: /app/public
+              mountPath: /opt/public
             - name: frontend-pkg
-              mountPath: /app/package.json
+              mountPath: /opt/package.json
               subPath: package.json
       volumes:
         - name: frontend-src
