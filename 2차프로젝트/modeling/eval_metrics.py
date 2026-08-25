@@ -20,6 +20,8 @@ Unified Metric Evaluator & Data Integrity Audit Engine
   Historical paper baseline files (EDDQN, DDQN, EST) originally utilized multi-block
   2D coordinate packing in the paper's experiments. They are audited here for direct
   historical metric reference (Figure 10) alongside the unified sequential simulator.
+  For paper baselines, Feasibility is marked as 'N/A (Historical 2D Ref)' because
+  spatial sub-coordinates inside platens are not auditable in the unified sequential model.
 ================================================================================
 """
 
@@ -221,6 +223,14 @@ class MetricEvaluator:
 
         total_violations = spatial_violations + crane_violations + est_violations + overlap_violations
 
+        # Feasibility classification
+        if is_paper_baseline:
+            feasible_status_str = "N/A (Historical 2D Ref)"
+            is_100pct_feas = None
+        else:
+            is_100pct_feas = (total_violations == 0)
+            feasible_status_str = "YES" if is_100pct_feas else "NO"
+
         return {
             "algorithm": algorithm_name,
             "is_paper_baseline": is_paper_baseline,
@@ -247,7 +257,8 @@ class MetricEvaluator:
                 "overlap": overlap_violations,
                 "total": total_violations
             },
-            "is_100pct_feasible": (total_violations == 0)
+            "is_100pct_feasible": is_100pct_feas,
+            "feasible_display": feasible_status_str
         }
 
 if __name__ == "__main__":
@@ -261,18 +272,18 @@ if __name__ == "__main__":
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-    print("=" * 105)
+    print("=" * 115)
     print("UNIFIED EVALUATION & STRICT DATA INTEGRITY AUDIT REPORT")
-    print("=" * 105)
+    print("=" * 115)
 
     files = [
         ("Google OR-Tools CP-SAT (Ours)", os.path.join(processed_dir, "ortools_scheduling_results.csv"), False),
         ("EST Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_est_results.csv"), False),
         ("LPT Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_lpt_results.csv"), False),
         ("SPT Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_spt_results.csv"), False),
+        ("PPO Actor-Critic (Ours)", os.path.join(processed_dir, "ppo_scheduling_results.csv"), False),
         ("RTB Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_rtb_results.csv"), False),
         ("RUB Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_rub_results.csv"), False),
-        ("PPO Actor-Critic (Ours)", os.path.join(processed_dir, "ppo_scheduling_results.csv"), False),
         ("EDDQN (Paper Baseline)", os.path.join(data_dir, "eddqn_scheduling_results.csv"), True),
         ("DDQN (Paper Baseline)", os.path.join(data_dir, "ddqn_scheduling_results.csv"), True),
     ]
@@ -291,12 +302,12 @@ if __name__ == "__main__":
                     "Makespan (d)": metrics["makespan_days"],
                     "Delayed (%)": f"{metrics['delayed_blocks_pct']}%",
                     "Avg Delay (d)": metrics["avg_delay_days_all"],
-                    "Violations": metrics["violations"]["total"],
-                    "Feasible": "YES" if metrics["is_100pct_feasible"] else "NO"
+                    "Violations": metrics["violations"]["total"] if not is_paper else "-",
+                    "Feasible": metrics["feasible_display"]
                 })
             except Exception as e:
                 print(f"Audit error on {name}: {e}")
 
     df_out = pd.DataFrame(rows)
     print(df_out.to_string(index=False))
-    print("=" * 105)
+    print("=" * 115)

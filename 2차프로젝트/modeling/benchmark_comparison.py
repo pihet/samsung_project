@@ -75,6 +75,13 @@ def generate_benchmark_report():
             "type": "Rule-based Heuristic",
         },
         {
+            "name": "PPO Actor-Critic (Ours)",
+            "key": "ppo",
+            "file": os.path.join(processed_dir, "ppo_scheduling_results.csv"),
+            "category": "Unified Simulator",
+            "type": "Deep Reinforcement Learning",
+        },
+        {
             "name": "RTB Heuristic (Unified Sim)",
             "key": "heuristic_rtb",
             "file": os.path.join(processed_dir, "heuristic_rtb_results.csv"),
@@ -87,13 +94,6 @@ def generate_benchmark_report():
             "file": os.path.join(processed_dir, "heuristic_rub_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-        },
-        {
-            "name": "PPO Actor-Critic (Ours)",
-            "key": "ppo",
-            "file": os.path.join(processed_dir, "ppo_scheduling_results.csv"),
-            "category": "Unified Simulator",
-            "type": "Deep Reinforcement Learning",
         },
         # Research Paper Historical Reference Baselines
         {
@@ -145,8 +145,8 @@ def generate_benchmark_report():
                 "Delayed Blocks": f"{metrics['delayed_blocks_count']} ({metrics['delayed_blocks_pct']}%)",
                 "Avg Delay (Days)": metrics["avg_delay_days_all"],
                 "Platen Util (%)": f"{metrics['utilization_pct']}%",
-                "Violations": metrics["violations"]["total"],
-                "100% Feasible": "YES" if metrics["is_100pct_feasible"] else "NO",
+                "Violations": metrics["violations"]["total"] if not is_paper else "-",
+                "100% Feasible": metrics["feasible_display"],
                 "Integrity": "PASS" if metrics["integrity"]["passed"] else "FAIL",
                 "Compute Time": compute_time_str
             })
