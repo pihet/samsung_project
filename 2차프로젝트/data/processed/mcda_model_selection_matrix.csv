@@ -1,5 +1,5 @@
-Candidate,Architecture,Makespan (Days),Delay Rate (%),Avg Delay (Days),Platen Util (%),Batch Time (872 Blk),Per-Block Latency,Training Overhead,Dynamic Real-time,Best Fit Role,Score (1-10)
-Google OR-Tools CP-SAT,Exact / CP-SAT Solver,1210,28.21,50.53,29.41,18.92 s,21.69 ms/blk,None (0s),Fair (~1.05s re-solve),Master Production Planning (Weekly/Monthly),9.2
-EST Heuristic Rule,Earliest Start Priority,1254,28.44,55.8,28.37,0.15 s,0.17 ms/blk,None (0s),Excellent (<0.1ms),Ultra-fast Robust Fallback / Baseline,8.8
-Action-Masked PPO RL (Ours),Actor-Critic Neural Policy,1371,69.04,143.06,25.95,0.70 s,0.80 ms/blk,26.61 s (30 eps),Superior (0.8ms forward),Real-time AI Dispatcher & Dynamic Adjustment,8.5
-Action-Masked DQN (Ours),Value-based Deep Q-Net,5827,95.76,1567.43,6.11,0.68 s,0.78 ms/blk,610.40 s (30 eps),Fast (0.78ms forward),Discrete Action Baseline Comparison,4.5
+Candidate,Makespan (Days),Delayed Blocks,Avg Delay (Days),Platen Util (%),Total 872-Blk Time,Per-Block Latency,Training Overhead,Best Fit Role,MCDA Score (1-10)
+Google OR-Tools CP-SAT,1210,246 (28.21%),50.53,29.41%,18.92 s (Measured),21.697 ms/blk,"None (Exact Solver, 0s)",Master Production Planning (Batch/Periodic),8.55
+EST Heuristic Rule,1254,248 (28.44%),55.8,28.37%,12.28 s (Measured),14.088 ms/blk,"None (Rule-based, 0s)",Ultra-fast Robust Fallback / Baseline,8.38
+Action-Masked PPO RL (Ours),1371,602 (69.04%),143.06,25.95%,0.65 s (Measured),0.743 ms/blk,Training: ~26s (30 eps),Real-time AI Dispatcher & Dynamic Adjustment,7.91
+Action-Masked DQN (Ours),5827,835 (95.76%),1567.43,6.11%,14.20 s (Measured),16.281 ms/blk,Training: ~610s (30 eps),Discrete Action Baseline Comparison,2.23

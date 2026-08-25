@@ -1,119 +1,101 @@
-# Smart Shipyard Platen Scheduling & End-to-End MLOps Platform
+# 🚢 AI 기반 조선소 정반 최적 배치 및 실시간 스케줄링 시스템
 
-## 1. 프로젝트 개요 (Project Overview)
-본 프로젝트는 대형 조선소의 선박 건조 공정 중 주요 병목(Bottleneck)인 **정반(Platen) 블록 조립 공정**의 872개 블록 x 66개 정반 생산 일정을 최적화하고, 데이터 수집부터 분산 전처리, 강화학습 및 수학적 최적화, 모델 서빙, 모니터링까지 전 과정을 완전 자동화한 **K8s-Native End-to-End MLOps 플랫폼**입니다.
-
-### 핵심 달성 성과
-1. **Google OR-Tools CP-SAT 수학적 최적화**: 기존 연구 논문(EDDQN 1,529일) 대비 **Makespan 319일 단축(1,210일 달성, 20.86% 생산성 개선)** 및 지연 블록 **246개(28.21%)로 최소화**
-2. **4대 물리 제약조건 100% 만족**: 90도 회전을 고려한 공간 제약, 350톤 크레인 하중 제약, EST(Earliest Start Date) 착공일 제약, 정반 단일 점유 비중첩 제약 전수 충족 (**위반 0건**)
-3. **Sub-5ms 실시간 AI 정반 추천 서빙**: FastAPI 및 React Glassmorphism 웹 대시보드를 통한 직관적 66개 정반 간트차트 및 신규 블록 실시간 시뮬레이터 구축
-4. **Cloud-Native MLOps 아키텍처**: Strimzi Kafka, Apache Spark on K8s, MinIO S3 Lakehouse, Apache Airflow Master DAG 완비
+본 프로젝트는 **872개 선박 블록과 66개 옥외/옥내 정반**을 대상으로, 조선소 생산 공정의 핵심 물리적·시간적 제약을 완벽히 준수하면서 공정 지연(Delay)과 총 소요 시간(Makespan)을 최소화하는 **수리적 최적화(OR-Tools), 심층 강화학습(PPO/DQN), 규칙 기반 휴리스틱(EST/LPT/SPT 등)** 융합 스케줄링 플랫폼입니다.
 
 ---
 
-## 2. 알고리즘 통합 벤치마크 (Algorithm Benchmark Leaderboard)
+## 1. 🎯 4대 핵심 제약 조건 (Modeled Constraints)
 
-모든 알고리즘은 872개 블록과 66개 정반에 대해 동일한 캘린더 기준(2018-02-24 Day 0) 및 안전 평가 모듈(`modeling/eval_metrics.py`)을 통해 엄밀하게 측정되었으며, 실행 시간은 `time.perf_counter()`를 통해 `benchmark_metrics.json` 아티팩트에 실측 기록되었습니다.
-
-### A. 통일 순차 시뮬레이터 벤치마크 (Unified Sequential Simulator - 100% Feasible)
-| 순위 | 알고리즘 명칭 | 방법론 분류 | Makespan (일) | 지연 블록 수 (비율) | 평균 지연일수 (일) | 정반 가동률 (%) | 4대 제약 위반 (건) | 100% 실행 가능 여부 | 데이터 무결성 | 실측 계산 소요시간 |
-|:---:|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **1** | **Google OR-Tools CP-SAT (Ours)** | **수학적 최적화 (CP-SAT)** | **1,210** | **246 (28.21%)** | **50.53** | **29.41%** | **0** | **YES** | **PASS** | **18.92s (Measured)** |
-| 2 | EST Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,254 | 248 (28.44%) | 55.80 | 28.37% | 0 | YES | PASS | 12.28s (Measured) |
-| 3 | LPT Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,438 | 623 (71.44%) | 211.10 | 24.74% | 0 | YES | PASS | 10.00s (Measured) |
-| 4 | SPT Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,474 | 528 (60.55%) | 174.60 | 24.14% | 0 | YES | PASS | 10.32s (Measured) |
-| 5 | PPO Actor-Critic (Ours) | 심층 강화학습 (RL) | 1,537 | 611 (70.07%) | 131.28 | 23.15% | 0 | YES | PASS | 11.90s (Measured) |
-| 6 | RTB Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,560 | 677 (77.64%) | 251.09 | 22.81% | 0 | YES | PASS | 9.68s (Measured) |
-| 7 | RUB Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,969 | 734 (84.17%) | 322.50 | 18.07% | 0 | YES | PASS | 10.90s (Measured) |
-
-### B. 연구 논문 원본 베이스라인 (Historical Paper Baselines - Figure 10 Reference)
-> **참고 (Disclaimer)**: 논문 베이스라인은 원본 논문 실험 환경에서 정반 내부 2D 동시 배치를 가정한 결과이므로, 단일 점유 순차 모델 기준의 제약 충족 여부는 검증 대상이 아니며 `N/A (Historical Reference)`로 분류됩니다.
-| 알고리즘 명칭 | 방법론 분류 | Makespan (일) | 지연 블록 수 (비율) | 평균 지연일수 (일) | 정반 가동률 (%) | 100% 실행 가능 여부 | 데이터 무결성 | 비고 |
-|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
-| EDDQN (Paper Baseline) | 논문 딥러닝 강화학습 | 1,529 | 480 (55.05%) | 75.37 | 23.27% | N/A (Historical 2D Ref) | FAIL (ID품질) | 논문 3,000 Episode 학습 결과 |
-| EST (Paper Benchmark) | 논문 규칙 기반 휴리스틱 | 1,566 | 463 (53.10%) | 66.32 | 22.72% | N/A (Historical 2D Ref) | - | 논문 Figure 10 요약 기준 |
-| DDQN (Paper Baseline) | 논문 강화학습 베이스라인 | 2,000 | 740 (84.86%) | 288.36 | 17.79% | N/A (Historical 2D Ref) | PASS | 논문 3,000 Episode 학습 결과 |
+1. **공간 적합성 제약 (Spatial Feasibility)**:
+   - 블록 치수($L \times W$)가 정반 치수를 초과하지 않아야 함 ($\max(L,W) \le \max(P_L,P_W) \land \min(L,W) \le \min(P_L,P_W)$).
+   - 평면 90도 회전 배치를 기본 허용.
+2. **크레인 인양 하중 제약 (Crane Capacity Feasibility)**:
+   - 블록 중량($\text{Weight}$)이 해당 정반에 설치된 크레인의 정격 인양 하중($\text{Crane Cap}$) 이하이어야 함.
+3. **착수 가능일 제약 (EST Precedence Constraint)**:
+   - 블록의 계획 착수일은 선행 공정 완료일(Earliest Start Date / Release Date) 이후이어야 함 ($\text{Start} \ge \text{EST}$).
+4. **정반 단일 점유 및 비중첩 제약 (Sequential Non-overlapping Constraint)**:
+   - 동일 정반 내에서는 선행 블록의 제작 완료일(End Day) 이후에만 차기 블록이 착수 가능 ($\text{Start}_{i+1} \ge \text{End}_i$).
 
 ---
 
-## 3. 제약조건 정의 및 모델링 범위 (Constraint Specifications)
+## 2. 📊 통합 벤치마크 리더보드 (100% Feasible 검증 완료)
 
-본 프로젝트에서 구현 및 검증된 4대 물리 제약조건의 명확한 정의는 다음과 같습니다:
+모든 알고리즘은 동일한 블록 데이터셋(872개), 동일한 정반 환경(66개), 동일한 물리 제약 검증 엔진 하에서 실측되었습니다.
 
-1. **공간 제약 (Spatial Feasibility)**:
-   - 블록의 90도 평면 회전을 허용하여 `max(L_block, W_block) <= max(L_platen, W_platen)` 및 `min(L_block, W_block) <= min(L_platen, W_platen)` 검증
-2. **크레인 인양 중량 제약 (Crane Capacity Feasibility)**:
-   - 블록 중량이 정반에 설치된 골리앗/지브 크레인의 인양 용량을 초과하지 않도록 `W_block <= Cap_crane` 검증
-3. **EST 착공 가능일 제약 (Earliest Start Date Precedence)**:
-   - 블록 가공/절단 완료 후 정반에 입고되는 최소 착공 가능일 `planned_start >= earliest_start_date` 검증 (원천 데이터에 조립 종속성 DAG 그래프가 부재하므로 블록별 EST 도착 시점 제약으로 모델링)
-4. **정반 단일 점유 비중첩 제약 (Single-Occupancy Non-overlapping)**:
-   - 동일 정반에서는 한 번에 하나의 블록만 연속 작업 `[planned_start, planned_end)` 하도록 검증 (원천 데이터에 정반 내 서브 좌표가 없으므로 단일 점유 순차 스케줄링 모델 적용)
-5. **초기 정반 점유 가용일 (Initial Platen Availability Calibration)**:
-   - `initial_platen_status.csv`의 기존 점유 최종 종료일은 2017-11-16 (Day 43055)로, 본 계획의 첫 블록 도착일인 2018-02-24 (Day 43155) 대비 100일 전에 이미 전량 출고 완료되었습니다. 따라서 시뮬레이션 개시 시점(Day 0)에 66개 정반은 모두 가용(공실) 상태입니다.
-
----
-
-## 4. 엔드투엔드 MLOps 시스템 아키텍처 (End-to-End Architecture)
-
-```mermaid
-graph TD
-    subgraph Layer1["1. Event Ingestion Layer"]
-        A1["MES/ERP Block Orders"] --> A2["Strimzi Kafka Cluster"]
-        A2 --> A3["Topic: shipyard-block-events"]
-    end
-
-    subgraph Layer2["2. Distributed Data Processing Layer"]
-        A3 --> B1["Apache Spark on K8s"]
-        B1 --> B2["Feature Engineering (Slack, Urgency, Area, Cluster)"]
-        B2 --> B3["MinIO S3 Data Lakehouse (s3a://shipyard-mlops/features/)"]
-    end
-
-    subgraph Layer3["3. Orchestration & Workflow Layer"]
-        C1["Apache Airflow Master DAG (KubernetesPodOperator)"]
-        C1 --> B1
-        C1 --> D1
-        C1 --> E1
-    end
-
-    subgraph Layer4["4. Optimization & Model Training Layer"]
-        B3 --> D1["Shipyard Discrete Event Simulator (Gymnasium)"]
-        D1 --> D2["Google OR-Tools CP-SAT Solver (1,210d, 0 Violations)"]
-        D1 --> D3["Action-Masked PPO RL Agent (Softmax Masking)"]
-        D2 & D3 --> D4["MinIO Model Registry (s3://shipyard-mlops/models/)"]
-    end
-
-    subgraph Layer5["5. Production Serving Layer"]
-        D4 --> E1["FastAPI Backend Server (Sub-5ms Inference Latency)"]
-        E1 --> E2["REST API (/api/benchmark, /api/schedule, /api/recommend)"]
-    end
-
-    subgraph Layer6["6. Interactive Web Dashboard Layer"]
-        E2 --> F1["React Web Dashboard (Port 3000)"]
-        F1 --> F2["Tab 1: Leaderboard Matrix"]
-        F1 --> F3["Tab 2: 66-Platen Gantt Schedule"]
-        F1 --> F4["Tab 3: Real-time AI Simulator"]
-    end
-```
+| 순위 | 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 | 제약 위반 | 무결성 | 실측 계산 시간 |
+| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | **Google OR-Tools CP-SAT (Ours)** | 수리적 최적화 (MIP/CP) | **1,210일** | 246 (28.21%) | 50.53일 | **29.41%** | 0건 | **PASS** | 18.92초 |
+| **2** | **EST Heuristic (Unified Sim)** | 규칙 기반 휴리스틱 | **1,254일** | 248 (28.44%) | 55.80일 | 28.37% | 0건 | **PASS** | 12.28초 |
+| **3** | **PPO Actor-Critic (V4 Best)** | 심층 강화학습 (RL) | **1,371일** | 602 (69.04%) | 143.06일 | 25.95% | 0건 | **PASS** | **0.65초** |
+| 4 | LPT Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,438일 | 623 (71.44%) | 211.10일 | 24.74% | 0건 | **PASS** | 10.00초 |
+| 5 | SPT Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,474일 | 528 (60.55%) | 174.60일 | 24.14% | 0건 | **PASS** | 10.32초 |
+| 6 | RTB Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,560일 | 677 (77.64%) | 251.09일 | 22.81% | 0건 | **PASS** | 9.68초 |
+| 7 | RUB Heuristic (Unified Sim) | 규칙 기반 휴리스틱 | 1,969일 | 734 (84.17%) | 322.50일 | 18.07% | 0건 | **PASS** | 10.90초 |
+| 8 | Action-Masked DQN (Ours) | 가치 기반 강화학습 (DQN) | 5,827일 | 835 (95.76%) | 1,567.43일 | 6.11% | 0건 | **PASS** | 14.20초 |
 
 ---
 
-## 5. 실행 및 검증 가이드 (Quickstart & Verification)
+## 3. 🔬 PPO V1 $\rightarrow$ V2 $\rightarrow$ V3 Ablation Study (3-Seed 통계 분석)
 
-### 1. 환경 구성 및 의존성 설치
-```bash
-pip install -r requirements.txt
+동일한 신경망 구조(208차원 입력)와 동일 학습 예산(30 에피소드), 3개 Fixed Seed(`42, 100, 2024`)로 단일 요인 Ablation을 측정한 결과입니다:
+
+| 실험 버전 | 상태 벡터 (State) | 보상 체계 (Reward) | Makespan (일, Mean ± Std) | 지연 블록 수 (Mean ± Std) | 평균 지연 (일) | 정반 가동률 | 872블록 추론 시간 | 통계적 결론 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **V1 (Vanilla)** | 기본 물리 차원만 (엔지니어링 0.0) | 단순 선형 지연 ($-\text{delay}$) | **1,599.3 ± 70.2일** | 586.7 ± 9.0 (67.3%) | 133.5 ± 8.3일 | 22.3% | 0.54 ± 0.03초 | 베이스라인 안정성 확인 |
+| **V2 (Feature Eng)** | Slack, Urgency, Cluster 활성화 | 단순 선형 지연 ($-\text{delay}$) | **1,670.7 ± 152.2일** | 591.0 ± 7.0 (67.8%) | 134.3 ± 6.2일 | 21.4% | 0.75 ± 0.22초 | 기본 예산 내 유의차 미미 |
+| **V3 (Reward Eng)** | Slack, Urgency, Cluster 활성화 | 다목적 보상 (가동률+분산+조기) | **1,958.7 ± 284.9일** | 583.0 ± 10.5 (66.9%) | 164.6 ± 25.4일 | 18.4% | 0.67 ± 0.07초 | 보상 복잡도 증가로 튜닝 필요 |
+
+> **정직한 결과 해석**: 고정된 30 에피소드 예산에서는 특성/보상 엔지니어링 자체만으로 극적인 Makespan 감소가 나타나지 않았으며, 탐색률(Entropy), 학습률(LR), 할인율(Gamma)의 결합 튜닝(V4)이 필수적임을 실증했습니다.
+
+---
+
+## 4. 🎛️ V4 하이퍼파라미터 튜닝 및 3-Seed 최종 검증
+
+Phase 1(Seed 42 후보 탐색)을 거쳐 선정된 최적 조합(`LR=1e-3, Gamma=0.99, Entropy=0.05, Reward=V2, Tau=0.5`)을 3개 Seed(`42, 100, 2024`)로 재학습·검증한 최종 성과입니다:
+
+- **Makespan**: **$1,414.3 \pm 42.5$ 일** (최고 단일 Seed: **1,371일**)
+- **지연 블록 수**: **$609.7 \pm 7.5$ 개 ($69.9\%$)**
+- **정반 가동률**: **$25.2 \pm 0.8 \%$**
+- **872개 블록 전체 추론 시간**: **$0.6744 \pm 0.0823$ 초 (블록당 $0.773\text{ ms}$)**
+- **학습 소요 시간**: **$24.62 \pm 1.69$ 초**
+- 최적 모델 가중치는 [best_rl_model.pth](file:///home/kjc/workspace/samsung_project/2차프로젝트/data/processed/best_rl_model.pth)에 저장되었습니다.
+
+---
+
+## 5. 🚨 긴급 블록 동적 주입 시나리오 실측 평가
+
+스케줄 진행 중 5건의 긴급 납기 블록이 도착했을 때의 실시간 재배치 성능을 마스터 점유 상태에서 실측했습니다:
+
+| 방법론 | 배포 역할 | 5개 긴급 블록 총 결정 시간 | 1개 블록당 결정 지연시간 | 지연 블록 | 제약 위반 |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **Action-Masked PPO RL (Ours)** | **실시간 AI 디스패처** | **5.45 ms** | **1.091 ms / block** | 5건 | **0건 (True)** |
+| **EST Heuristic Rule** | **운영 백업 규칙** | **0.80 ms** | **0.160 ms / block** | 5건 | **0건 (True)** |
+| **Google OR-Tools CP-SAT** | **마스터 생산 계획기** | N/A - full re-optimization not executed | N/A | N/A | N/A |
+
+---
+
+## 6. 🏆 다기준 의사결정 분석 (MCDA) 및 현장 배포 권고
+
+```
+MCDA 점수 산정 공식 (1~10점):
+Score = 10 * [0.35 * (Min_Makespan / Makespan) + 0.25 * (Min_Delay / Delay) + 
+              0.15 * (Util / Max_Util) + 0.15 * (Min_Latency / Latency) + 0.10 * Overhead_Score]
 ```
 
-### 2. 시뮬레이터 단위 테스트 실행 (Unit Test)
-```bash
-python3 tests/test_simulator.py
-```
+| 후보 모델 | Makespan | 지연 블록 | 정반 가동률 | 872블록 생성 시간 | 블록당 지연시간 | 학습 오버헤드 | MCDA 점수 (1-10) | 최종 권장 역할 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Google OR-Tools** | **1,210일** | **246개** | **29.41%** | 18.92초 | 21.697 ms | 0초 (Solver) | **8.55점** | **정기 마스터 계획 수립 (주간/월간)** |
+| **EST Heuristic** | 1,254일 | 248개 | 28.37% | 12.28초 | 14.088 ms | 0초 (Rule) | **8.38점** | **초경량 무결점 안전 백업 (Zero-overhead)** |
+| **Action-Masked PPO** | 1,371일 | 602개 | 25.95% | **0.65초** | **0.743 ms** | 24.6초 (RL) | **7.91점** | **실시간 AI 디스패처 & 동적 긴급 대응** |
+| **Action-Masked DQN** | 5,827일 | 835개 | 6.11% | 14.20초 | 16.281 ms | 610.4초 (DQN) | **2.23점** | 이산 행동 가치 기반 베이스라인 비교군 |
 
-### 3. 전체 알고리즘 벤치마크 실행 및 시간 측정
-```bash
-python3 modeling/baseline_heuristics.py
-python3 modeling/solver_ortools.py
-python3 modeling/train_ppo.py
-python3 modeling/eval_metrics.py
-python3 modeling/benchmark_comparison.py
-```
+---
+
+## 7. ⚠️ 데이터 한계 및 추후 연구 과제 (Current Limitations)
+
+1. **정반 내 다중 블록 2D 패킹(Multi-Block Packing) 미반영**:
+   - 현재 시뮬레이터는 정반 비중첩 단일 점유(1-Block Sequential Occupancy)를 가정합니다. 실제 정반 내 다수 소형 블록을 테트리스처럼 동시 배치하는 2D 기하학적 패킹은 추후 2D Grid 시뮬레이터 확장이 필요합니다.
+2. **크레인 동적 이동 궤적 및 간섭(Crane Interference) 미반영**:
+   - 정격 하중 한계는 모델링되었으나, 동일 베이 내 복수 크레인의 물리적 주행 간섭 시간은 데이터셋에 포함되지 않아 정적 인양 가능 여부만 검증되었습니다.
+3. **OR-Tools 동적 증분 재최적화(Incremental Re-solve) 부재**:
+   - 긴급 블록 발생 시 OR-Tools의 Warm-start 증분 풀이는 구현되지 않아 동적 시나리오에서는 "N/A"로 보존되었습니다.

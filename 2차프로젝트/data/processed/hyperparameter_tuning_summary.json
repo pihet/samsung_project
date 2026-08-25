@@ -1,0 +1,55 @@
+{
+  "Best Configuration": {
+    "lr": 0.001,
+    "entropy_coef": 0.05,
+    "gamma": 0.99,
+    "reward_version": "V2",
+    "tau": 0.5,
+    "tag": "Cfg_A (LR1e-3, G99, Ent0.05, Tau0.5)"
+  },
+  "Makespan_Days_Mean": 1414.33,
+  "Makespan_Days_Std": 42.52,
+  "Delayed_Blocks_Mean": 609.67,
+  "Delayed_Blocks_Std": 7.51,
+  "Delayed_Pct_Mean": 69.92,
+  "Avg_Delay_Days_Mean": 130.67,
+  "Avg_Delay_Days_Std": 10.91,
+  "Platen_Util_Pct_Mean": 25.17,
+  "Platen_Util_Pct_Std": 0.76,
+  "Train_Time_Sec_Mean": 24.62,
+  "Train_Time_Sec_Std": 1.69,
+  "Inference_Time_Sec_Mean": 0.6744,
+  "Inference_Time_Sec_Std": 0.0823,
+  "3_Seed_Records": [
+    {
+      "Seed": 42,
+      "Makespan (Days)": 1371,
+      "Delayed Blocks": 602,
+      "Delayed (%)": 69.04,
+      "Avg Delay (Days)": 143.06,
+      "Platen Util (%)": 25.95,
+      "Train Time (s)": 23.89,
+      "Inference Time (s)": 0.6481
+    },
+    {
+      "Seed": 100,
+      "Makespan (Days)": 1416,
+      "Delayed Blocks": 617,
+      "Delayed (%)": 70.76,
+      "Avg Delay (Days)": 122.49,
+      "Platen Util (%)": 25.13,
+      "Train Time (s)": 26.55,
+      "Inference Time (s)": 0.7667
+    },
+    {
+      "Seed": 2024,
+      "Makespan (Days)": 1456,
+      "Delayed Blocks": 610,
+      "Delayed (%)": 69.95,
+      "Avg Delay (Days)": 126.46,
+      "Platen Util (%)": 24.44,
+      "Train Time (s)": 23.41,
+      "Inference Time (s)": 0.6085
+    }
+  ]
+}

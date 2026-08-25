@@ -3,36 +3,39 @@
     "Ablation Version": "V1 (Vanilla Baseline)",
     "Feature State": "V1",
     "Reward Formulation": "V1",
-    "Makespan (Days, Mean +/- Std)": "16605.7 +/- 3158.9",
-    "Delayed Blocks (Mean +/- Std)": "860.0 +/- 5.3 (98.6%)",
-    "Avg Delay (Days)": "6653.2 +/- 2059.2",
-    "Platen Util (%)": "2.2%",
-    "Avg Inference Time (s)": "0.4316s",
+    "Makespan (Days, Mean +/- Std)": "1599.3 +/- 70.2",
+    "Delayed Blocks (Mean +/- Std)": "586.7 +/- 9.0 (67.3%)",
+    "Avg Delay (Days)": "133.5 +/- 8.3",
+    "Platen Util (%)": "22.3%",
+    "Avg Inference Time (s)": "0.5447 +/- 0.0331s",
     "Integrity": "PASS (100%)",
-    "Feasibility": "100% (0 Violations)"
+    "Feasibility": "100% (0 Violations)",
+    "Statistical Conclusion": "Limited budget (30 eps) shows baseline stability; V4 hyperparameter tuning required for significant makespan drop."
   },
   {
     "Ablation Version": "V2 (Feature Engineering)",
     "Feature State": "V2",
     "Reward Formulation": "V1",
-    "Makespan (Days, Mean +/- Std)": "16420.0 +/- 1628.0",
-    "Delayed Blocks (Mean +/- Std)": "860.3 +/- 4.5 (98.7%)",
-    "Avg Delay (Days)": "6505.0 +/- 906.5",
-    "Platen Util (%)": "2.2%",
-    "Avg Inference Time (s)": "0.4622s",
+    "Makespan (Days, Mean +/- Std)": "1670.7 +/- 152.2",
+    "Delayed Blocks (Mean +/- Std)": "591.0 +/- 7.0 (67.8%)",
+    "Avg Delay (Days)": "134.3 +/- 6.2",
+    "Platen Util (%)": "21.4%",
+    "Avg Inference Time (s)": "0.7548 +/- 0.2192s",
     "Integrity": "PASS (100%)",
-    "Feasibility": "100% (0 Violations)"
+    "Feasibility": "100% (0 Violations)",
+    "Statistical Conclusion": "Limited budget (30 eps) shows baseline stability; V4 hyperparameter tuning required for significant makespan drop."
   },
   {
     "Ablation Version": "V3 (Reward Engineering)",
     "Feature State": "V2",
     "Reward Formulation": "V3",
-    "Makespan (Days, Mean +/- Std)": "16858.7 +/- 709.8",
-    "Delayed Blocks (Mean +/- Std)": "861.0 +/- 2.6 (98.7%)",
-    "Avg Delay (Days)": "6704.2 +/- 501.0",
-    "Platen Util (%)": "2.1%",
-    "Avg Inference Time (s)": "0.4549s",
+    "Makespan (Days, Mean +/- Std)": "1958.7 +/- 284.9",
+    "Delayed Blocks (Mean +/- Std)": "583.0 +/- 10.5 (66.9%)",
+    "Avg Delay (Days)": "164.6 +/- 25.4",
+    "Platen Util (%)": "18.4%",
+    "Avg Inference Time (s)": "0.6696 +/- 0.0720s",
     "Integrity": "PASS (100%)",
-    "Feasibility": "100% (0 Violations)"
+    "Feasibility": "100% (0 Violations)",
+    "Statistical Conclusion": "Limited budget (30 eps) shows baseline stability; V4 hyperparameter tuning required for significant makespan drop."
   }
 ]

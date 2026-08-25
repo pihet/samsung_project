@@ -43,13 +43,12 @@
   },
   "ppo": {
     "algorithm": "PPO Actor-Critic (Ours)",
-    "feature_version": "V2",
-    "reward_version": "V2",
-    "compute_time_sec": 0.7026,
-    "training_time_sec": 26.61,
+    "configuration": "Cfg_A (LR1e-3, G99, Ent0.05, Tau0.5)",
+    "compute_time_sec": 0.6481,
+    "training_time_sec": 23.89,
     "makespan_days": 1371,
     "delayed_blocks": 602,
-    "timestamp": 1787638243.0685887
+    "timestamp": 1787639843.5918808
   },
   "dqn": {
     "algorithm": "Action-Masked DQN (Ours)",
@@ -64,99 +63,99 @@
     "feature_version": "V1",
     "reward_version": "V1",
     "seed": 42,
-    "compute_time_sec": 0.4747,
-    "training_time_sec": 28.34,
-    "makespan_days": 19438,
-    "delayed_blocks": 864,
-    "timestamp": 1787637467.2579656
+    "compute_time_sec": 0.5749,
+    "training_time_sec": 25.38,
+    "makespan_days": 1663,
+    "delayed_blocks": 582,
+    "timestamp": 1787638727.3834076
   },
   "ppo_v1_v1_seed100": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V1",
     "reward_version": "V1",
     "seed": 100,
-    "compute_time_sec": 0.4437,
-    "training_time_sec": 25.81,
-    "makespan_days": 17180,
-    "delayed_blocks": 854,
-    "timestamp": 1787637493.770917
+    "compute_time_sec": 0.5094,
+    "training_time_sec": 23.25,
+    "makespan_days": 1611,
+    "delayed_blocks": 581,
+    "timestamp": 1787638751.3642075
   },
   "ppo_v1_v1_seed2024": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V1",
     "reward_version": "V1",
     "seed": 2024,
-    "compute_time_sec": 0.3764,
-    "training_time_sec": 25.59,
-    "makespan_days": 13199,
-    "delayed_blocks": 862,
-    "timestamp": 1787637519.841391
+    "compute_time_sec": 0.5499,
+    "training_time_sec": 22.7,
+    "makespan_days": 1524,
+    "delayed_blocks": 597,
+    "timestamp": 1787638774.838016
   },
   "ppo_v2_v1_seed42": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V1",
     "seed": 42,
-    "compute_time_sec": 0.4368,
-    "training_time_sec": 26.26,
-    "makespan_days": 17529,
-    "delayed_blocks": 865,
-    "timestamp": 1787637546.7625847
+    "compute_time_sec": 0.5911,
+    "training_time_sec": 27.13,
+    "makespan_days": 1808,
+    "delayed_blocks": 591,
+    "timestamp": 1787638802.7862253
   },
   "ppo_v2_v1_seed100": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V1",
     "seed": 100,
-    "compute_time_sec": 0.4063,
-    "training_time_sec": 24.05,
-    "makespan_days": 14551,
-    "delayed_blocks": 856,
-    "timestamp": 1787637571.4328191
+    "compute_time_sec": 1.0038,
+    "training_time_sec": 27.71,
+    "makespan_days": 1697,
+    "delayed_blocks": 584,
+    "timestamp": 1787638831.7471244
   },
   "ppo_v2_v1_seed2024": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V1",
     "seed": 2024,
-    "compute_time_sec": 0.5434,
-    "training_time_sec": 27.92,
-    "makespan_days": 17180,
-    "delayed_blocks": 860,
-    "timestamp": 1787637600.1465092
+    "compute_time_sec": 0.6695,
+    "training_time_sec": 28.89,
+    "makespan_days": 1507,
+    "delayed_blocks": 598,
+    "timestamp": 1787638861.57133
   },
   "ppo_v2_v3_seed42": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V3",
     "seed": 42,
-    "compute_time_sec": 0.5259,
-    "training_time_sec": 28.67,
-    "makespan_days": 16045,
-    "delayed_blocks": 860,
-    "timestamp": 1787637629.5657096
+    "compute_time_sec": 0.5868,
+    "training_time_sec": 24.96,
+    "makespan_days": 2286,
+    "delayed_blocks": 582,
+    "timestamp": 1787638887.3689532
   },
   "ppo_v2_v3_seed100": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V3",
     "seed": 100,
-    "compute_time_sec": 0.4374,
-    "training_time_sec": 25.09,
-    "makespan_days": 17180,
-    "delayed_blocks": 859,
-    "timestamp": 1787637655.310382
+    "compute_time_sec": 0.7172,
+    "training_time_sec": 25.34,
+    "makespan_days": 1767,
+    "delayed_blocks": 573,
+    "timestamp": 1787638913.716157
   },
   "ppo_v2_v3_seed2024": {
     "algorithm": "PPO Actor-Critic (Ours)",
     "feature_version": "V2",
     "reward_version": "V3",
     "seed": 2024,
-    "compute_time_sec": 0.4015,
-    "training_time_sec": 26.63,
-    "makespan_days": 17351,
-    "delayed_blocks": 864,
-    "timestamp": 1787637682.5824275
+    "compute_time_sec": 0.7048,
+    "training_time_sec": 24.49,
+    "makespan_days": 1823,
+    "delayed_blocks": 594,
+    "timestamp": 1787638939.012281
   },
   "ppo_best_seed42": {
     "algorithm": "PPO Actor-Critic (Ours)",
