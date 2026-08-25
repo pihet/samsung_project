@@ -27,7 +27,7 @@ spec:
             - -c
             - |
               echo "Installing FastAPI and ML Serving dependencies..."
-              pip install --no-cache-dir fastapi uvicorn pandas numpy torch pydantic
+              pip install --no-cache-dir fastapi uvicorn pandas numpy torch pydantic --extra-index-url https://download.pytorch.org/whl/cpu
               echo "Launching Uvicorn ASGI Server..."
               python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
           workingDir: /opt

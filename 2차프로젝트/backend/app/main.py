@@ -20,7 +20,15 @@ from pydantic import BaseModel
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 backend_dir = os.path.dirname(cur_dir)
 root_dir = os.path.dirname(backend_dir)
-processed_dir = os.path.join(root_dir, "data/processed")
+
+# Multi-path search for data/processed (local dev & K8s container)
+candidate_paths = [
+    os.path.join(root_dir, "data/processed"),
+    "/opt/data/processed",
+    "/data/processed",
+    os.path.join(cur_dir, "data/processed")
+]
+processed_dir = next((p for p in candidate_paths if os.path.exists(p)), candidate_paths[0])
 
 sys.path.append(root_dir)
 sys.path.append(os.path.join(root_dir, "simulation"))
@@ -63,10 +71,14 @@ df_platens_cache = None
 
 def load_assets():
     global ppo_model, df_platens_cache
+    
+    # 1. Load Platens
     platen_file = os.path.join(processed_dir, "featured_platens.csv")
     if os.path.exists(platen_file):
         df_platens_cache = pd.read_csv(platen_file)
+        print(f"[Backend Startup] Loaded {len(df_platens_cache)} platens from {platen_file}")
 
+    # 2. Load PPO Model
     ppo_file = os.path.join(processed_dir, "ppo_model.pth")
     if os.path.exists(ppo_file):
         try:
@@ -79,17 +91,22 @@ def load_assets():
             else:
                 ppo_model.load_state_dict(state_dict, strict=False)
             ppo_model.eval()
+            print("[Backend Startup] PPO model initialized.")
         except Exception as e:
             pass
 
-# Initialize assets on import
+# Initialize assets on startup/import
 load_assets()
 
 @app.get("/health")
 def health_check():
+    # Reload assets if not yet loaded
+    if df_platens_cache is None:
+        load_assets()
     return {
         "status": "healthy",
         "service": "shipyard-platen-backend",
+        "processed_dir": processed_dir,
         "model_loaded": ppo_model is not None,
         "platens_count": len(df_platens_cache) if df_platens_cache is not None else 0
     }
@@ -113,6 +130,8 @@ def get_benchmark_leaderboard():
 
 @app.get("/api/platens")
 def get_platens():
+    if df_platens_cache is None:
+        load_assets()
     if df_platens_cache is None:
         raise HTTPException(status_code=500, detail="Platens dataset not loaded")
     return df_platens_cache.to_dict(orient="records")
@@ -161,6 +180,8 @@ class BlockRecommendRequest(BaseModel):
 @app.post("/api/recommend")
 def recommend_platen(req: BlockRecommendRequest):
     t0 = time.time()
+    if df_platens_cache is None:
+        load_assets()
     if df_platens_cache is None:
         raise HTTPException(status_code=500, detail="Platens metadata not loaded")
 
