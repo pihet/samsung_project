@@ -1,4 +1,4 @@
-# serving/k8s/fastapi-serving.yaml
+# backend/k8s/fastapi-serving.yaml
 # [FastAPI 고가용성 실시간 서빙 Deployment & Service]
 
 apiVersion: apps/v1
@@ -9,7 +9,7 @@ metadata:
   labels:
     app: fastapi-serving
 spec:
-  replicas: 2               # 👈 2대의 서빙 파드로 로드밸런싱 및 무중단 고가용성(HA) 제공
+  replicas: 2
   selector:
     matchLabels:
       app: fastapi-serving
@@ -26,9 +26,9 @@ spec:
             - /bin/bash
             - -c
             - |
-              echo "📦 Installing FastAPI and ML Serving packages..."
-              pip install --no-cache-dir fastapi uvicorn boto3 tensorflow numpy pydantic
-              echo "🚀 Launching Uvicorn ASGI Server..."
+              echo "Installing FastAPI and ML Serving dependencies..."
+              pip install --no-cache-dir fastapi uvicorn pandas numpy torch pydantic
+              echo "Launching Uvicorn ASGI Server..."
               python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
           workingDir: /opt
           env:
@@ -46,15 +46,20 @@ spec:
               cpu: "300m"
               memory: "512Mi"
             limits:
-              cpu: "1500m"
-              memory: "1536Mi"
+              cpu: "2000m"
+              memory: "2048Mi"
           volumeMounts:
             - name: app-code
               mountPath: /opt/app
+            - name: data-processed
+              mountPath: /opt/data/processed
       volumes:
         - name: app-code
           configMap:
             name: fastapi-serving-app
+        - name: data-processed
+          configMap:
+            name: fastapi-data-processed
 
 ---
 apiVersion: v1
