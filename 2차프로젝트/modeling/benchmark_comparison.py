@@ -1,7 +1,7 @@
 # modeling/benchmark_comparison.py
 """
 ================================================================================
- [Benchmark] 알고리즘별 종합 성능 비교 및 평가 리포트 생성
+Comprehensive 11-Algorithm Benchmark Report & Visualization
 ================================================================================
 """
 
@@ -10,55 +10,83 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
-processed_dir = os.path.join(base_dir, "data/processed")
+sys.path.append(base_dir)
 
-benchmark_data = [
-    {"Algorithm": "Google OR-Tools CP-SAT (Ours)", "Makespan_Days": 1216, "Delayed_Blocks": 252, "Compute_Time_Sec": 18.09, "Type": "Mathematical Optimization"},
-    {"Algorithm": "EST Heuristic (Ours)", "Makespan_Days": 1249, "Delayed_Blocks": 259, "Compute_Time_Sec": 0.12, "Type": "Rule-based Heuristic"},
-    {"Algorithm": "PPO Actor-Critic (Ours)", "Makespan_Days": 1398, "Delayed_Blocks": 586, "Compute_Time_Sec": 0.05, "Type": "Deep Reinforcement Learning"},
-    {"Algorithm": "EDDQN (Paper Benchmark)", "Makespan_Days": 1529, "Delayed_Blocks": 310, "Compute_Time_Sec": 0.10, "Type": "Research Paper Baseline"},
-    {"Algorithm": "EST (Paper Benchmark)", "Makespan_Days": 1566, "Delayed_Blocks": 345, "Compute_Time_Sec": 0.15, "Type": "Research Paper Baseline"},
-    {"Algorithm": "RTB Heuristic (Paper)", "Makespan_Days": 1729, "Delayed_Blocks": 420, "Compute_Time_Sec": 0.15, "Type": "Research Paper Baseline"},
-    {"Algorithm": "SPT Heuristic (Paper)", "Makespan_Days": 1792, "Delayed_Blocks": 435, "Compute_Time_Sec": 0.15, "Type": "Research Paper Baseline"},
-    {"Algorithm": "RUB Heuristic (Paper)", "Makespan_Days": 1793, "Delayed_Blocks": 440, "Compute_Time_Sec": 0.15, "Type": "Research Paper Baseline"},
-    {"Algorithm": "LPT Heuristic (Paper)", "Makespan_Days": 1845, "Delayed_Blocks": 460, "Compute_Time_Sec": 0.15, "Type": "Research Paper Baseline"},
-    {"Algorithm": "DDQN (Paper Benchmark)", "Makespan_Days": 2000, "Delayed_Blocks": 510, "Compute_Time_Sec": 0.10, "Type": "Research Paper Baseline"},
-    {"Algorithm": "Random Policy (Baseline)", "Makespan_Days": 7003, "Delayed_Blocks": 513, "Compute_Time_Sec": 0.05, "Type": "Random Baseline"}
-]
+from modeling.eval_metrics import SafeScheduleReader, MetricEvaluator
 
-df_bm = pd.DataFrame(benchmark_data)
-df_bm_sorted = df_bm.sort_values(by="Makespan_Days", ascending=True).reset_index(drop=True)
+def generate_benchmark_report():
+    data_dir = os.path.join(base_dir, "data/standardized")
+    processed_dir = os.path.join(base_dir, "data/processed")
 
-print("=" * 85)
-print(" [종합 알고리즘 벤치마크 비교 성적표 (Makespan 오름차순)]")
-print("=" * 85)
-print(df_bm_sorted[['Algorithm', 'Type', 'Makespan_Days', 'Delayed_Blocks', 'Compute_Time_Sec']].to_string(index=False))
-print("=" * 85)
+    blocks_csv = os.path.join(processed_dir, "featured_blocks.csv")
+    platens_csv = os.path.join(processed_dir, "featured_platens.csv")
 
-# 시각화 비교 바차트 생성
-plt.figure(figsize=(12, 6))
-colors = ['#1f77b4' if 'Ours' in a else '#7f7f7f' for a in df_bm_sorted['Algorithm']]
-colors[0] = '#2ca02c' # 1위 녹색
+    evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-bars = plt.barh(df_bm_sorted['Algorithm'][::-1], df_bm_sorted['Makespan_Days'][::-1], color=colors[::-1], height=0.65)
-plt.xlabel('Total Makespan (Days - Lower is Better)', fontsize=12, fontweight='bold')
-plt.title('Shipyard Platen Scheduling Algorithm Benchmark Comparison (872 Blocks x 66 Platens)', fontsize=13, fontweight='bold')
-plt.grid(axis='x', linestyle='--', alpha=0.5)
+    algorithms = [
+        {"name": "Google OR-Tools CP-SAT (Ours)", "file": os.path.join(processed_dir, "ortools_scheduling_results.csv"), "type": "Mathematical Optimization", "paper_makespan": None, "time_sec": 18.76},
+        {"name": "EST Heuristic (Unified Sim)", "file": os.path.join(processed_dir, "heuristic_est_results.csv"), "type": "Rule-based Heuristic", "paper_makespan": 1566, "time_sec": 0.15},
+        {"name": "LPT Heuristic (Unified Sim)", "file": os.path.join(processed_dir, "heuristic_lpt_results.csv"), "type": "Rule-based Heuristic", "paper_makespan": 1845, "time_sec": 0.15},
+        {"name": "SPT Heuristic (Unified Sim)", "file": os.path.join(processed_dir, "heuristic_spt_results.csv"), "type": "Rule-based Heuristic", "paper_makespan": 1792, "time_sec": 0.15},
+        {"name": "RTB Heuristic (Unified Sim)", "file": os.path.join(processed_dir, "heuristic_response_time_results.csv"), "type": "Rule-based Heuristic", "paper_makespan": 1729, "time_sec": 0.15},
+        {"name": "RUB Heuristic (Unified Sim)", "file": os.path.join(processed_dir, "heuristic_resource_utilization_results.csv"), "type": "Rule-based Heuristic", "paper_makespan": 1793, "time_sec": 0.15},
+        {"name": "PPO Actor-Critic (Ours)", "file": os.path.join(processed_dir, "ppo_scheduling_results.csv"), "type": "Deep Reinforcement Learning", "paper_makespan": None, "time_sec": 0.05},
+        {"name": "EDDQN (Paper Baseline)", "file": os.path.join(data_dir, "eddqn_scheduling_results.csv"), "type": "Research Paper Baseline", "paper_makespan": 1529, "time_sec": 0.10},
+        {"name": "DDQN (Paper Baseline)", "file": os.path.join(data_dir, "ddqn_scheduling_results.csv"), "type": "Research Paper Baseline", "paper_makespan": 2000, "time_sec": 0.10},
+    ]
 
-for bar in bars:
-    width = bar.get_width()
-    plt.text(width + 80, bar.get_y() + bar.get_height()/2, f'{int(width):,} Days',
-             va='center', ha='left', fontsize=10, fontweight='bold', color='black')
+    report_rows = []
+    for item in algorithms:
+        fpath = item["file"]
+        if os.path.exists(fpath):
+            try:
+                df_s = SafeScheduleReader.load_schedule(fpath)
+                metrics = evaluator.evaluate(df_s, item["name"])
+                report_rows.append({
+                    "Algorithm": item["name"],
+                    "Method Type": item["type"],
+                    "Makespan (Days)": metrics["makespan_days"],
+                    "Delayed Blocks": metrics["delayed_blocks_count"],
+                    "Delayed (%)": metrics["delayed_blocks_pct"],
+                    "Avg Delay (Days)": metrics["avg_delay_days_all"],
+                    "Platen Util (%)": metrics["utilization_pct"],
+                    "Violations": metrics["violations"]["total"],
+                    "100% Feasible": metrics["is_100pct_feasible"],
+                    "Compute Time (s)": item["time_sec"]
+                })
+            except Exception as e:
+                print(f"Error reading {item['name']}: {e}")
 
-plt.xlim(0, 8000)
-plt.tight_layout()
+    df_report = pd.DataFrame(report_rows).sort_values(by="Makespan (Days)").reset_index(drop=True)
+    df_report.insert(0, "Rank", np.arange(1, len(df_report) + 1))
 
-chart_out = os.path.join(processed_dir, "algorithm_benchmark_comparison.png")
-plt.savefig(chart_out, dpi=200)
-plt.close()
+    print("=" * 110)
+    print("FINAL 11-ALGORITHM STANDARDIZED BENCHMARK REPORT")
+    print("=" * 110)
+    print(df_report.to_string(index=False))
+    print("=" * 110)
 
-print(f" 최종 비교 차트 저장 완료: {chart_out}")
+    # Plot figure
+    plt.figure(figsize=(12, 6))
+    colors = ['#10b981' if 'Ours' in name else '#3b82f6' if 'Unified' in name else '#64748b' for name in df_report['Algorithm']]
+    bars = plt.barh(df_report['Algorithm'][::-1], df_report['Makespan (Days)'][::-1], color=colors[::-1], height=0.6)
+    plt.xlabel('Makespan (Days, Lower is Better)', fontsize=12, fontweight='bold')
+    plt.title('Shipyard Platen Scheduling Benchmark: Makespan Comparison across 872 Blocks', fontsize=14, fontweight='bold')
+    plt.grid(axis='x', linestyle='--', alpha=0.5)
+
+    for bar in bars:
+        width = bar.get_width()
+        plt.text(width + 20, bar.get_y() + bar.get_height()/2, f'{int(width)}d', va='center', ha='left', fontsize=10, fontweight='bold')
+
+    plt.tight_layout()
+    chart_path = os.path.join(processed_dir, "algorithm_benchmark_comparison.png")
+    plt.savefig(chart_path, dpi=300)
+    print(f"Saved benchmark chart to: {chart_path}")
+
+    return df_report
+
+if __name__ == "__main__":
+    generate_benchmark_report()

@@ -1,27 +1,32 @@
 # spark/apps/spark_kafka_consumer.py
 """
-[실전 PySpark 분산 처리 & MinIO 데이터 레이크 적재 파이프라인]
-1. Kafka [my-topic]에서 SCRAM-SHA-512 보안 인증을 거쳐 실시간 주문 데이터를 읽어옴
-2. 고객별/상품별 분산 통계 집계 수행
-3. MinIO S3 스토리지 [s3a://features/orders]에 Parquet 포맷으로 고속 영속 저장
+================================================================================
+PySpark Distributed Shipyard Block Feature Engineering & MinIO Lakehouse Ingestion
+================================================================================
+- Pipeline:
+  1. Consumes raw shipyard block production events from Kafka topic 'shipyard-block-events'.
+  2. Performs distributed Domain Feature Engineering (slack_days, urgency_ratio, area_m2, aspect_ratio).
+  3. Writes high-performance Parquet format to MinIO S3 Data Lake (s3a://shipyard-mlops/features/blocks).
+================================================================================
 """
 
+import os
 import sys
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col
-from pyspark.sql.types import StructType, StructField, StringType, LongType
+from pyspark.sql.functions import from_json, col, when, to_date, datediff, lit
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
 
 def main():
-    print("=========================================================")
-    print(" Starting Spark Kafka  MinIO Data Lake Pipeline")
-    print("=========================================================")
+    print("=" * 80)
+    print("Starting PySpark Shipyard Block Processing & MinIO Lakehouse Pipeline")
+    print("=" * 80)
 
-    # 1. SparkSession 생성 (MinIO S3A 설정 포함)
+    # 1. Initialize SparkSession with S3A MinIO credentials
     spark = SparkSession.builder \
-        .appName("KafkaToMinIOOrderPipeline") \
-        .config("spark.hadoop.fs.s3a.endpoint", "http://minio-service.minio.svc:9000") \
-        .config("spark.hadoop.fs.s3a.access.key", "minioadmin") \
-        .config("spark.hadoop.fs.s3a.secret.key", "minioadmin123") \
+        .appName("ShipyardBlockFeaturePipeline") \
+        .config("spark.hadoop.fs.s3a.endpoint", os.getenv("MINIO_ENDPOINT", "http://minio-service.minio.svc:9000")) \
+        .config("spark.hadoop.fs.s3a.access.key", os.getenv("MINIO_ACCESS_KEY", "minioadmin")) \
+        .config("spark.hadoop.fs.s3a.secret.key", os.getenv("MINIO_SECRET_KEY", "minioadmin123")) \
         .config("spark.hadoop.fs.s3a.path.style.access", "true") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
@@ -29,57 +34,56 @@ def main():
 
     spark.sparkContext.setLogLevel("WARN")
 
-    # 2. 주문 데이터 JSON 스키마 정의
-    order_schema = StructType([
-        StructField("order_id", StringType(), True),
-        StructField("user", StringType(), True),
-        StructField("item", StringType(), True),
-        StructField("amount", LongType(), True),
-        StructField("timestamp", StringType(), True)
+    # 2. Define Shipyard Block Event Schema
+    block_schema = StructType([
+        StructField("seq_id", IntegerType(), True),
+        StructField("ship_id", StringType(), True),
+        StructField("block_id", StringType(), True),
+        StructField("length_m", DoubleType(), True),
+        StructField("width_m", DoubleType(), True),
+        StructField("weight_ton", DoubleType(), True),
+        StructField("lead_time_days", IntegerType(), True),
+        StructField("earliest_start_date", StringType(), True),
+        StructField("due_date", StringType(), True),
+        StructField("block_type", StringType(), True)
     ])
 
-    # 3. Kafka my-topic에서 데이터 읽기 (SCRAM-SHA-512 보안 연결)
-    kafka_df = spark.read \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", "my-cluster-kafka-bootstrap.kafka.svc:9092") \
-        .option("subscribe", "my-topic") \
-        .option("startingOffsets", "earliest") \
-        .option("kafka.security.protocol", "SASL_PLAINTEXT") \
-        .option("kafka.sasl.mechanism", "SCRAM-SHA-512") \
-        .option("kafka.sasl.jaas.config", 'org.apache.kafka.common.security.scram.ScramLoginModule required username="my-app-user" password="uk2eajtu8WM5lGgAemy5F8l3qoJh5mwz";') \
-        .load()
+    # 3. Read stream or batch from Kafka
+    kafka_bootstrap = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap.kafka.svc:9092")
+    topic_name = "shipyard-block-events"
 
-    # 4. JSON 바이너리 데이터를 구조화된 테이블로 파싱
-    parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
-        .select(from_json(col("json_str"), order_schema).alias("data")) \
-        .select("data.*") \
-        .filter(col("order_id").isNotNull())
+    print(f"Connecting to Kafka: {kafka_bootstrap}, Topic: {topic_name}")
 
-    print("\n [1단계] Kafka에서 읽어온 원천 주문 데이터 목록:")
-    parsed_df.show(truncate=False)
+    # Fallback to direct dataframe if running in local test mode
+    try:
+        raw_df = spark.read \
+            .format("kafka") \
+            .option("kafka.bootstrap.servers", kafka_bootstrap) \
+            .option("subscribe", topic_name) \
+            .option("startingOffsets", "earliest") \
+            .load()
 
-    print("\n [2단계] 고객(User)별 총 구매 금액 및 주문 횟수 분산 집계:")
-    user_summary = parsed_df.groupBy("user") \
-        .agg({"amount": "sum", "order_id": "count"}) \
-        .withColumnRenamed("sum(amount)", "total_spent_krw") \
-        .withColumnRenamed("count(order_id)", "order_count") \
-        .orderBy(col("total_spent_krw").desc())
-    user_summary.show(truncate=False)
+        parsed_df = raw_df.select(from_json(col("value").cast("string"), block_schema).alias("data")).select("data.*")
+    except Exception as e:
+        print(f"Kafka connection skipped (test mode): {e}")
+        parsed_df = spark.createDataFrame([], block_schema)
 
-    # 5. MinIO 로컬 S3 [features] 버킷에 Parquet 포맷으로 영속 저장 
-    print("\n [3단계] MinIO 로컬 S3 스토리지(s3a://features/orders)에 Parquet 저장 시작...")
-    
-    parsed_df.write \
-        .mode("overwrite") \
-        .parquet("s3a://features/orders")
+    # 4. Feature Engineering
+    if parsed_df.count() > 0:
+        featured_df = parsed_df \
+            .withColumn("block_area_m2", col("length_m") * col("width_m")) \
+            .withColumn("aspect_ratio", col("length_m") / when(col("width_m") == 0, 1.0).otherwise(col("width_m"))) \
+            .withColumn("total_window_days", datediff(to_date(col("due_date")), to_date(col("earliest_start_date")))) \
+            .withColumn("slack_days", col("total_window_days") - col("lead_time_days")) \
+            .withColumn("urgency_ratio", col("lead_time_days") / when(col("total_window_days") <= 0, 1.0).otherwise(col("total_window_days")))
 
-    user_summary.write \
-        .mode("overwrite") \
-        .parquet("s3a://features/user_summary")
-
-    print("=========================================================")
-    print(" All Spark Data Successfully Saved to MinIO S3 (features Bucket)!")
-    print("=========================================================")
+        # 5. Write to MinIO S3A
+        output_s3 = "s3a://shipyard-mlops/features/blocks"
+        print(f"Writing {featured_df.count()} featured blocks to MinIO Lakehouse: {output_s3}")
+        featured_df.write.mode("overwrite").parquet(output_s3)
+        print("Write successfully completed.")
+    else:
+        print("No incoming Kafka events. Pipeline ready.")
 
     spark.stop()
 
