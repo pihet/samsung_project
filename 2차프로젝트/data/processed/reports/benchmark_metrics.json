@@ -1,45 +1,45 @@
 {
   "heuristic_est": {
     "algorithm": "EST Heuristic (Unified Sim)",
-    "compute_time_sec": 0.188,
+    "compute_time_sec": 0.1893,
     "makespan_days": 1254,
     "delayed_blocks": 248,
-    "timestamp": 1787642800.6646311
+    "timestamp": 1787643386.328519
   },
   "heuristic_spt": {
     "algorithm": "SPT Heuristic (Unified Sim)",
-    "compute_time_sec": 0.2193,
+    "compute_time_sec": 0.1846,
     "makespan_days": 1474,
     "delayed_blocks": 528,
-    "timestamp": 1787642800.9843285
+    "timestamp": 1787643386.9201458
   },
   "heuristic_lpt": {
     "algorithm": "LPT Heuristic (Unified Sim)",
-    "compute_time_sec": 0.2044,
+    "compute_time_sec": 0.2301,
     "makespan_days": 1438,
     "delayed_blocks": 623,
-    "timestamp": 1787642801.29834
+    "timestamp": 1787643387.2920926
   },
   "heuristic_rub": {
     "algorithm": "RUB Heuristic (Unified Sim)",
-    "compute_time_sec": 1.4459,
+    "compute_time_sec": 1.4588,
     "makespan_days": 1969,
     "delayed_blocks": 734,
-    "timestamp": 1787642802.8409896
+    "timestamp": 1787643388.870029
   },
   "heuristic_rtb": {
     "algorithm": "RTB Heuristic (Unified Sim)",
-    "compute_time_sec": 0.2683,
+    "compute_time_sec": 0.2193,
     "makespan_days": 1560,
     "delayed_blocks": 677,
-    "timestamp": 1787642803.2147064
+    "timestamp": 1787643389.2134933
   },
   "ortools": {
     "algorithm": "Google OR-Tools CP-SAT (Ours)",
-    "compute_time_sec": 17.208,
-    "makespan_days": 1215,
-    "delayed_blocks": 249,
-    "timestamp": 1787642780.0723038
+    "compute_time_sec": 17.0963,
+    "makespan_days": 1240,
+    "delayed_blocks": 242,
+    "timestamp": 1787643379.1702845
   },
   "ppo": {
     "algorithm": "PPO Actor-Critic (Ours)",

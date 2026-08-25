@@ -8,24 +8,24 @@
     "Avg Delay (Days)": 55.8,
     "Platen Util (%)": 28.4,
     "100% Feasible": true,
-    "Total 872-Block Time (s)": 0.188,
-    "Decision Latency (ms/block)": 0.21559633027522937,
+    "Total 872-Block Time (s)": 0.1893,
+    "Decision Latency (ms/block)": 0.21708715596330275,
     "Training Overhead": "0s (Direct Rule)",
-    "MCDA Score (1-10)": 9.85
+    "MCDA Score (1-10)": 9.88
   },
   {
     "Candidate Model": "Google OR-Tools CP-SAT",
     "Target Deployment Role": "Master Production Optimizer",
-    "Makespan (Days)": 1215,
-    "Delayed Blocks": 249,
-    "Delayed Rate (%)": 28.6,
-    "Avg Delay (Days)": 51.1,
-    "Platen Util (%)": 29.3,
+    "Makespan (Days)": 1240,
+    "Delayed Blocks": 242,
+    "Delayed Rate (%)": 27.8,
+    "Avg Delay (Days)": 53.9,
+    "Platen Util (%)": 28.7,
     "100% Feasible": true,
-    "Total 872-Block Time (s)": 17.208,
-    "Decision Latency (ms/block)": 19.73394495412844,
+    "Total 872-Block Time (s)": 17.0963,
+    "Decision Latency (ms/block)": 19.60584862385321,
     "Training Overhead": "0s (Direct Solve)",
-    "MCDA Score (1-10)": 8.51
+    "MCDA Score (1-10)": 8.52
   },
   {
     "Candidate Model": "Action-Masked PPO RL (Ours)",
@@ -39,7 +39,7 @@
     "Total 872-Block Time (s)": 0.6481,
     "Decision Latency (ms/block)": 0.7432339449541284,
     "Training Overhead": "24.6s (RL Train)",
-    "MCDA Score (1-10)": 6.8
+    "MCDA Score (1-10)": 6.87
   },
   {
     "Candidate Model": "Action-Masked DQN (Ours)",
@@ -53,6 +53,6 @@
     "Total 872-Block Time (s)": 14.197,
     "Decision Latency (ms/block)": 16.28096330275229,
     "Training Overhead": "610.4s (DQN Train)",
-    "MCDA Score (1-10)": 2.1
+    "MCDA Score (1-10)": 2.11
   }
 ]

@@ -3,6 +3,9 @@
 ================================================================================
 Google OR-Tools CP-SAT Rolling Horizon Mathematical Optimization Engine
 ================================================================================
+- Deterministic single-thread search (num_workers=1, random_seed=42) for 100%
+  exact repeatability across runs.
+================================================================================
 """
 
 import os
@@ -124,7 +127,8 @@ def solve_window_cpsat(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(time_limit_per_window)
-    solver.parameters.num_workers = 8
+    solver.parameters.num_workers = 1
+    solver.parameters.random_seed = 42
     
     if feasible_platens:
         status = solver.Solve(model)
@@ -228,7 +232,7 @@ def solve_window_cpsat(
 def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window: float = 1.0) -> Dict[str, Any]:
     t_start = time.perf_counter()
     print("=" * 80)
-    print("Google OR-Tools CP-SAT Rolling Horizon Optimization")
+    print("Google OR-Tools CP-SAT Rolling Horizon Optimization (Deterministic: workers=1, seed=42)")
     print("=" * 80)
 
     block_file = get_feature_path("featured_blocks.csv")
