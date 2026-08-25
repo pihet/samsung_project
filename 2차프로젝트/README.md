@@ -132,7 +132,7 @@ flowchart TD
 
 ---
 
-## 7. �� 다기준 의사결정 분석 (MCDA) 및 3중 하이브리드 운영 전략
+## 7. 다기준 의사결정 분석 (MCDA) 및 3중 하이브리드 운영 전략
 
 $$
 \text{MCDA Score} = 10 \times \left[ 0.35 \frac{\text{Min Makespan}}{\text{Makespan}} + 0.25 \frac{\text{Min Delay}}{\text{Delay}} + 0.15 \frac{\text{Util}}{\text{Max Util}} + 0.15 \frac{\text{Min Latency}}{\text{Latency}} + 0.10 \text{Overhead Score} \right]
