@@ -1,10 +1,11 @@
 # modeling/solver_ortools.py
 """
 ================================================================================
-Google OR-Tools CP-SAT Rolling Horizon Mathematical Optimization Engine
+Google OR-Tools CP-SAT Deterministic Rolling Horizon Optimization Engine
 ================================================================================
-- Deterministic single-thread search (num_workers=1, random_seed=42) for 100%
-  exact repeatability across runs.
+- Deterministic single-thread search (num_workers=1, random_seed=42)
+- Uses `max_deterministic_time` instead of wall-clock `max_time_in_seconds`
+  to guarantee 100% exact byte-for-byte repeatable schedule CSV artifacts.
 ================================================================================
 """
 
@@ -12,7 +13,8 @@ import os
 import sys
 import time
 import json
-from typing import Dict, List, Tuple, Any
+import hashlib
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
 from ortools.sat.python import cp_model
@@ -53,7 +55,8 @@ def solve_window_cpsat(
     df_window: pd.DataFrame, 
     df_platens: pd.DataFrame, 
     platen_start_times: np.ndarray, 
-    time_limit_per_window: float = 1.0
+    max_deterministic_time: float = 0.5,
+    random_seed: int = 42
 ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
     model = cp_model.CpModel()
     num_platens = len(df_platens)
@@ -126,9 +129,9 @@ def solve_window_cpsat(
         model.Minimize(15 * total_delay_expr + total_end_expr)
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(time_limit_per_window)
     solver.parameters.num_workers = 1
-    solver.parameters.random_seed = 42
+    solver.parameters.random_seed = int(random_seed)
+    solver.parameters.max_deterministic_time = float(max_deterministic_time)
     
     if feasible_platens:
         status = solver.Solve(model)
@@ -229,10 +232,15 @@ def solve_window_cpsat(
     window_results = sorted(window_results, key=lambda x: x['seq_id'])
     return window_results, new_platen_times
 
-def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window: float = 1.0) -> Dict[str, Any]:
+def run_ortools_platen_optimization(
+    window_size: int = 50, 
+    max_deterministic_time: float = 0.5,
+    random_seed: int = 42,
+    save_artifact: bool = True
+) -> Tuple[Dict[str, Any], pd.DataFrame]:
     t_start = time.perf_counter()
     print("=" * 80)
-    print("Google OR-Tools CP-SAT Rolling Horizon Optimization (Deterministic: workers=1, seed=42)")
+    print(f"Google OR-Tools CP-SAT Deterministic Optimization (det_time={max_deterministic_time}, workers=1, seed={random_seed})")
     print("=" * 80)
 
     block_file = get_feature_path("featured_blocks.csv")
@@ -262,27 +270,41 @@ def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window
         df_win = df_blocks.iloc[start_idx:end_idx].copy()
 
         t0 = time.time()
-        w_res, platen_times = solve_window_cpsat(df_win, df_platens, platen_times, time_limit_per_window)
+        w_res, platen_times = solve_window_cpsat(
+            df_win, df_platens, platen_times, 
+            max_deterministic_time=max_deterministic_time,
+            random_seed=random_seed
+        )
         elapsed = round(time.time() - t0, 2)
         all_results.extend(w_res)
         print(f"   [Window {w_idx+1:>2}/{num_windows}] Blocks {start_idx:>3}~{end_idx:>3} CP-SAT Solved ({elapsed:>4.2f}s) | Makespan: {int(np.max(platen_times))}d")
 
     total_solve_time = round(time.perf_counter() - t_start, 4)
 
-    df_out = pd.DataFrame(all_results)
+    df_out = pd.DataFrame(all_results).sort_values(by='seq_id').reset_index(drop=True)
     out_csv = os.path.join(SCHEDULES_DIR, "ortools_scheduling_results.csv")
-    df_out.to_csv(out_csv, index=False, encoding='utf-8')
+    
+    if save_artifact:
+        df_out.to_csv(out_csv, index=False, encoding='utf-8')
 
     evaluator = MetricEvaluator(block_file, platen_file)
     eval_res = evaluator.evaluate(df_out, "Google OR-Tools CP-SAT")
 
-    update_metrics_json("ortools", {
-        "algorithm": "Google OR-Tools CP-SAT (Ours)",
-        "compute_time_sec": total_solve_time,
-        "makespan_days": eval_res["makespan_days"],
-        "delayed_blocks": eval_res["delayed_blocks_count"],
-        "timestamp": time.time()
-    })
+    if save_artifact:
+        # Compute SHA-256 hash of schedule CSV
+        with open(out_csv, 'rb') as f:
+            csv_sha256 = hashlib.sha256(f.read()).hexdigest()
+
+        update_metrics_json("ortools", {
+            "algorithm": "Google OR-Tools CP-SAT (Ours)",
+            "compute_time_sec": total_solve_time,
+            "makespan_days": eval_res["makespan_days"],
+            "delayed_blocks": eval_res["delayed_blocks_count"],
+            "sha256": csv_sha256,
+            "deterministic_time_limit": max_deterministic_time,
+            "seed": random_seed,
+            "timestamp": time.time()
+        })
 
     print("\n" + "=" * 80)
     print("Google OR-Tools CP-SAT Exact Evaluation Results")
@@ -295,10 +317,11 @@ def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window
     print(f"   Constraint Violations: {eval_res['violations']['total']}")
     print(f"   100% Feasible: {eval_res['is_100pct_feasible']}")
     print(f"   Measured Solve Time: {total_solve_time} s")
-    print(f"   Output: {out_csv}")
+    if save_artifact:
+        print(f"   Output: {out_csv}")
     print("=" * 80)
 
-    return eval_res
+    return eval_res, df_out
 
 if __name__ == "__main__":
-    run_ortools_platen_optimization(window_size=50, time_limit_per_window=1.0)
+    run_ortools_platen_optimization(window_size=50, max_deterministic_time=0.05, random_seed=42)

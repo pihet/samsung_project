@@ -36,10 +36,13 @@
   },
   "ortools": {
     "algorithm": "Google OR-Tools CP-SAT (Ours)",
-    "compute_time_sec": 17.0963,
-    "makespan_days": 1240,
-    "delayed_blocks": 242,
-    "timestamp": 1787643379.1702845
+    "compute_time_sec": 17.1975,
+    "makespan_days": 1254,
+    "delayed_blocks": 248,
+    "sha256": "ea438f343f8402740411a7d9af467f1d3908b7460f788d93809772a7227365f9",
+    "deterministic_time_limit": 0.05,
+    "seed": 42,
+    "timestamp": 1787644571.7250085
   },
   "ppo": {
     "algorithm": "PPO Actor-Critic (Ours)",
