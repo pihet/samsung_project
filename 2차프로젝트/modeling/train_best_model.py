@@ -17,6 +17,7 @@ cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 
+from utils.paths import get_feature_path, MODELS_DIR, SCHEDULES_DIR, REPORTS_DIR, EXPERIMENTS_DIR
 from modeling.train_ppo import PPOTrainer, set_global_seeds, update_metrics_json
 from modeling.eval_metrics import MetricEvaluator
 
@@ -31,8 +32,8 @@ def train_best_model_suite():
     print("TRAINING FINAL BEST V4 MODEL (LR=1e-3, Ent=0.05, Rew=V2, Tau=0.5) ACROSS 3 SEEDS")
     print("=" * 105)
 
-    blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
-    platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
     seed_records = []
@@ -52,10 +53,11 @@ def train_best_model_suite():
 
         t0 = time.perf_counter()
         for ep in range(1, 31):
-            trainer.train_episode()
+            traj = trainer.collect_trajectory()
+            trainer.train_step(traj)
         train_sec = time.perf_counter() - t0
 
-        eval_res, eval_sec = trainer.evaluate_and_save(training_time_sec=train_sec, save_name=f"ppo_best_seed{seed}", temperature=BEST_TAU)
+        eval_res, eval_sec = trainer.evaluate_and_save(save_name=f"ppo_best_seed{seed}", training_time_sec=train_sec)
 
         seed_records.append({
             "Seed": seed,
@@ -82,12 +84,12 @@ def train_best_model_suite():
     print("=" * 105)
     print(df_seeds.to_string(index=False))
 
-    # Save Best Model Artifacts
-    best_model_path = os.path.join(base_dir, "data/processed/best_rl_model.pth")
+    # Save Best Model Artifacts in models/
+    best_model_path = os.path.join(MODELS_DIR, "best_rl_model.pth")
     torch.save(best_state_dict, best_model_path)
     
-    # Save as primary ppo schedule
-    best_sched_path = os.path.join(base_dir, "data/processed/ppo_scheduling_results.csv")
+    # Save as primary ppo schedule in schedules/
+    best_sched_path = os.path.join(SCHEDULES_DIR, "ppo_scheduling_results.csv")
     best_df.to_csv(best_sched_path, index=False)
 
     update_metrics_json("ppo", {

@@ -1,21 +1,21 @@
 # backend/app/main.py
 """
 ================================================================================
-FastAPI High-Performance Serving Server for Shipyard Platen Optimization
+FastAPI Backend Service for Shipyard Platen Optimization Platform
 ================================================================================
-- Endpoints:
-  1. GET /health : Service status, model load status, platen count
-  2. GET /api/benchmark : 11-Algorithm benchmark comparison matrix
-  3. GET /api/schedule/{algorithm} : 872-block Gantt scheduling results with delay metrics
-  4. GET /api/platens : 66 shipyard platens specification & crane capacities
-  5. POST /api/recommend : Real-time (<5ms) AI platen recommendation & 4-constraint validation
+- Serves:
+  * System Health & Metadata (/health)
+  * Multi-algorithm Benchmark Leaderboard (/api/benchmark)
+  * 66 Platens Master Specifications (/api/platens)
+  * Full Production Schedules per Algorithm (/api/schedule/{algo})
+  * Real-Time Block Platen Recommendation Inference (/api/recommend)
 ================================================================================
 """
 
 import os
 import sys
 import time
-from typing import Dict, Any, List, Optional
+from typing import Optional, List, Dict, Any
 import numpy as np
 import pandas as pd
 import torch
@@ -25,24 +25,16 @@ from pydantic import BaseModel
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 backend_dir = os.path.dirname(cur_dir)
-root_dir = os.path.dirname(backend_dir)
+base_dir = os.path.dirname(backend_dir)
+sys.path.append(base_dir)
 
-# Multi-path search for data/processed (local dev & K8s container)
-candidate_paths = [
-    os.path.join(root_dir, "data/processed"),
-    "/opt/data/processed",
-    "/data/processed",
-    os.path.join(cur_dir, "data/processed")
-]
-processed_dir = next((p for p in candidate_paths if os.path.exists(p)), candidate_paths[0])
-
-sys.path.append(root_dir)
-sys.path.append(os.path.join(root_dir, "simulation"))
+from utils.paths import PROCESSED_DIR, get_feature_path, get_model_path, get_schedule_path
+from modeling.train_ppo import MaskedActorCritic
 
 app = FastAPI(
-    title="Shipyard Smart Platen Scheduling & MLOps API",
-    description="Production-grade serving API for 872 Blocks x 66 Platens Scheduling",
-    version="2.1.0"
+    title="Shipyard Platen Scheduling API",
+    version="2.0.0",
+    description="Production-grade AI & Mathematical Optimization Service for Shipyard Platen Scheduling"
 )
 
 app.add_middleware(
@@ -53,43 +45,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ppo_model = None
+# Global Cached Assets
 df_platens_cache = None
+ppo_model = None
 
 def load_assets():
-    global ppo_model, df_platens_cache
+    global df_platens_cache, ppo_model
     
     # 1. Load Platens
-    platen_file = os.path.join(processed_dir, "featured_platens.csv")
-    if os.path.exists(platen_file):
-        df_platens_cache = pd.read_csv(platen_file)
-        print(f"[Backend Startup] Loaded {len(df_platens_cache)} platens from {platen_file}")
+    try:
+        platens_path = get_feature_path("featured_platens.csv")
+        if os.path.exists(platens_path):
+            df_platens_cache = pd.read_csv(platens_path)
+            print(f"[Backend Startup] Loaded {len(df_platens_cache)} platens from {platens_path}")
+    except Exception as e:
+        print(f"[Backend Startup] Warning loading platens: {e}")
 
-    # 2. Load PPO Model
-    ppo_file = os.path.join(processed_dir, "ppo_model.pth")
+    # 2. Load Trained RL Model (best_rl_model.pth or ppo_model.pth)
+    ppo_file = get_model_path("best_rl_model.pth")
+    if not os.path.exists(ppo_file):
+        ppo_file = get_model_path("ppo_model.pth")
+
     if os.path.exists(ppo_file):
         try:
-            from modeling.train_ppo import MaskedActorCritic
             ppo_model = MaskedActorCritic(208, 66)
             state_dict = torch.load(ppo_file, map_location="cpu")
             if hasattr(ppo_model, "load_state_dict"):
                 ppo_model.load_state_dict(state_dict)
             ppo_model.eval()
-            print("[Backend Startup] PPO model initialized.")
+            print(f"[Backend Startup] PPO model initialized from {ppo_file}.")
         except Exception as e:
             print(f"[Backend Startup] PPO model load warning: {e}")
 
-# Initialize assets on startup/import
+# Initialize assets on startup
 load_assets()
 
 @app.get("/health")
 def health_check():
-    if df_platens_cache is None:
+    if df_platens_cache is None or ppo_model is None:
         load_assets()
     return {
         "status": "healthy",
         "service": "shipyard-platen-backend",
-        "processed_dir": processed_dir,
+        "processed_dir": PROCESSED_DIR,
         "model_loaded": ppo_model is not None,
         "platens_count": len(df_platens_cache) if df_platens_cache is not None else 0
     }
@@ -97,16 +95,16 @@ def health_check():
 @app.get("/api/benchmark")
 def get_benchmark_leaderboard():
     leaderboard = [
-        {"rank": 1, "algorithm": "Google OR-Tools CP-SAT (Ours)", "type": "Mathematical Optimization", "makespan_days": 1210, "delayed_blocks": 246, "compute_time_sec": 18.76, "status": "Best Makespan"},
-        {"rank": 2, "algorithm": "EST Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1254, "delayed_blocks": 248, "compute_time_sec": 0.15, "status": "Fast Baseline"},
-        {"rank": 3, "algorithm": "LPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1438, "delayed_blocks": 623, "compute_time_sec": 0.15, "status": "Standard Heuristic"},
-        {"rank": 4, "algorithm": "SPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1474, "delayed_blocks": 528, "compute_time_sec": 0.15, "status": "Standard Heuristic"},
-        {"rank": 5, "algorithm": "EDDQN (Paper Baseline)", "type": "Research Paper Baseline", "makespan_days": 1529, "delayed_blocks": 480, "compute_time_sec": 0.10, "status": "Paper Benchmark"},
-        {"rank": 6, "algorithm": "RTB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1560, "delayed_blocks": 677, "compute_time_sec": 0.15, "status": "Standard Heuristic"},
-        {"rank": 7, "algorithm": "EST (Paper Benchmark)", "type": "Research Paper Baseline", "makespan_days": 1566, "delayed_blocks": 463, "compute_time_sec": 0.15, "status": "Paper Benchmark"},
-        {"rank": 8, "algorithm": "PPO Actor-Critic (Ours)", "type": "Deep Reinforcement Learning", "makespan_days": 1766, "delayed_blocks": 613, "compute_time_sec": 0.05, "status": "Real-time AI"},
-        {"rank": 9, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1969, "delayed_blocks": 734, "compute_time_sec": 0.15, "status": "Standard Heuristic"},
-        {"rank": 10, "algorithm": "DDQN (Paper Benchmark)", "type": "Research Paper Baseline", "makespan_days": 2000, "delayed_blocks": 740, "compute_time_sec": 0.10, "status": "Paper Benchmark"}
+        {"rank": 1, "algorithm": "Google OR-Tools CP-SAT (Ours)", "type": "Mathematical Optimization", "makespan_days": 1210, "delayed_blocks": 246, "compute_time_sec": 18.92, "status": "Master Planner"},
+        {"rank": 2, "algorithm": "EST Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1254, "delayed_blocks": 248, "compute_time_sec": 12.28, "status": "Fast Fallback"},
+        {"rank": 3, "algorithm": "PPO Actor-Critic (Ours)", "type": "Deep Reinforcement Learning", "makespan_days": 1371, "delayed_blocks": 602, "compute_time_sec": 0.65, "status": "Real-time AI"},
+        {"rank": 4, "algorithm": "LPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1438, "delayed_blocks": 623, "compute_time_sec": 10.00, "status": "Standard Heuristic"},
+        {"rank": 5, "algorithm": "SPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1474, "delayed_blocks": 528, "compute_time_sec": 10.32, "status": "Standard Heuristic"},
+        {"rank": 6, "algorithm": "EDDQN (Paper Baseline)", "type": "Research Paper Baseline", "makespan_days": 1529, "delayed_blocks": 480, "compute_time_sec": 0.10, "status": "Paper Benchmark"},
+        {"rank": 7, "algorithm": "RTB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1560, "delayed_blocks": 677, "compute_time_sec": 9.68, "status": "Standard Heuristic"},
+        {"rank": 8, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1969, "delayed_blocks": 734, "compute_time_sec": 10.90, "status": "Standard Heuristic"},
+        {"rank": 9, "algorithm": "DDQN (Paper Baseline)", "type": "Research Paper Baseline", "makespan_days": 2000, "delayed_blocks": 740, "compute_time_sec": 0.10, "status": "Paper Benchmark"},
+        {"rank": 10, "algorithm": "Action-Masked DQN (Ours)", "type": "Deep Reinforcement Learning", "makespan_days": 5827, "delayed_blocks": 835, "compute_time_sec": 14.20, "status": "Discrete Baseline"}
     ]
     return {"total": len(leaderboard), "leaderboard": leaderboard}
 
@@ -127,22 +125,22 @@ def get_schedule(algorithm: str):
         "est": "heuristic_est_results.csv",
         "spt": "heuristic_spt_results.csv",
         "lpt": "heuristic_lpt_results.csv",
-        "rub": "heuristic_resource_utilization_results.csv",
-        "rtb": "heuristic_response_time_results.csv"
+        "rub": "heuristic_rub_results.csv",
+        "rtb": "heuristic_rtb_results.csv",
+        "dqn": "dqn_scheduling_results.csv"
     }
 
     if algo_clean not in file_map:
         raise HTTPException(status_code=404, detail=f"Algorithm '{algorithm}' not found. Supported: {list(file_map.keys())}")
 
     filename = file_map[algo_clean]
-    fpath = os.path.join(processed_dir, filename)
+    fpath = get_schedule_path(filename)
 
     if not os.path.exists(fpath):
         raise HTTPException(status_code=404, detail=f"Schedule file {filename} not found.")
 
     df_sched = pd.read_csv(fpath)
     
-    # Normalize column names
     col_map = {
         'planned_start': 'planned_start_day',
         'planned_end': 'planned_end_day',
@@ -210,7 +208,6 @@ def recommend_platen(req: BlockRecommendRequest):
             })
 
     if not feasible_platens:
-        # Fallback to largest platen
         p_largest = df_platens_cache.sort_values(by=['platen_area_m2', 'crane_capacity_ton'], ascending=[False, False]).iloc[0]
         feasible_platens.append({
             "platen_idx": int(p_largest.get('seq_id', 0)),
@@ -223,7 +220,6 @@ def recommend_platen(req: BlockRecommendRequest):
             "crane_margin_ton": round(float(p_largest['crane_capacity_ton']) - b_wt, 1)
         })
 
-    # Sort feasible platens by utilization (best fit)
     feasible_platens = sorted(feasible_platens, key=lambda x: x["area_utilization_pct"], reverse=True)
     best = feasible_platens[0]
     elapsed_ms = round((time.time() - t0) * 1000, 2)

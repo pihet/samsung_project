@@ -3,9 +3,6 @@
 ================================================================================
 Standard Rule-Based Baseline Heuristics (EST, SPT, LPT, RUB, RTB)
 ================================================================================
-- Measures exact execution time using time.perf_counter() and logs to benchmark_metrics.json.
-- Guarantees 100% physical feasibility & strict data integrity across all 872 blocks.
-================================================================================
 """
 
 import os
@@ -21,10 +18,11 @@ base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
+from utils.paths import get_feature_path, SCHEDULES_DIR, REPORTS_DIR
 from simulation.simulator import ShipyardPlatenSimulator
 from modeling.eval_metrics import MetricEvaluator
 
-METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+METRICS_JSON = os.path.join(REPORTS_DIR, "benchmark_metrics.json")
 
 def update_metrics_json(algo_key: str, data: Dict[str, Any]):
     os.makedirs(os.path.dirname(METRICS_JSON), exist_ok=True)
@@ -45,7 +43,6 @@ def run_heuristic(rule_name: str, blocks_csv: str, platens_csv: str) -> Dict[str
     df_b = pd.read_csv(blocks_csv)
     df_p = pd.read_csv(platens_csv)
 
-    # 1. Calibrate calendar
     if 'est_day' not in df_b.columns:
         df_b['est_dt'] = pd.to_datetime(df_b['earliest_start_date'])
         df_b['due_dt'] = pd.to_datetime(df_b['due_date'])
@@ -59,7 +56,6 @@ def run_heuristic(rule_name: str, blocks_csv: str, platens_csv: str) -> Dict[str
     if 'urgency_ratio' not in df_b.columns:
         df_b['urgency_ratio'] = df_b['lead_time_days'] / np.maximum(1, df_b['due_day'] - df_b['est_day'])
 
-    # 2. Sort blocks based on heuristic rule
     if rule_name == "EST":
         df_sorted = df_b.sort_values(by=['est_day', 'urgency_ratio'], ascending=[True, False]).reset_index(drop=True)
     elif rule_name == "SPT":
@@ -73,7 +69,6 @@ def run_heuristic(rule_name: str, blocks_csv: str, platens_csv: str) -> Dict[str
     else:
         df_sorted = df_b.copy()
 
-    # 3. Simulator execution with safe fallback
     sim = ShipyardPlatenSimulator(df_sorted, df_p, order_by="raw")
 
     for b_idx in range(sim.num_blocks):
@@ -115,7 +110,7 @@ def run_heuristic(rule_name: str, blocks_csv: str, platens_csv: str) -> Dict[str
     elapsed_sec = round(time.perf_counter() - t_start, 4)
     metrics = sim.get_summary_metrics()
     df_out = pd.DataFrame(sim.allocation_history)
-    out_file = os.path.join(base_dir, f"data/processed/heuristic_{rule_name.lower()}_results.csv")
+    out_file = os.path.join(SCHEDULES_DIR, f"heuristic_{rule_name.lower()}_results.csv")
     df_out.to_csv(out_file, index=False)
 
     update_metrics_json(f"heuristic_{rule_name.lower()}", {
@@ -137,9 +132,8 @@ def run_heuristic(rule_name: str, blocks_csv: str, platens_csv: str) -> Dict[str
     }
 
 def evaluate_all_heuristics():
-    processed_dir = os.path.join(base_dir, "data/processed")
-    blocks_csv = os.path.join(processed_dir, "featured_blocks.csv")
-    platens_csv = os.path.join(processed_dir, "featured_platens.csv")
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
     print("=" * 85)

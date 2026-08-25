@@ -21,6 +21,7 @@ base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
+from utils.paths import get_feature_path, get_model_path, get_schedule_path, EXPERIMENTS_DIR
 from simulation.simulator import ShipyardPlatenSimulator
 from modeling.train_ppo import MaskedActorCritic
 from modeling.eval_metrics import SafeScheduleReader
@@ -33,11 +34,6 @@ def set_eval_seed(seed: int = 42):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-def get_artifact_path(subfolder: str, filename: str) -> str:
-    c1 = os.path.join(base_dir, f"data/processed/{subfolder}/{filename}")
-    c2 = os.path.join(base_dir, f"data/processed/{filename}")
-    return c1 if os.path.exists(c1) else c2
 
 def get_occupied_platen_state_at_day(master_schedule_csv: str, target_day: int = 100, num_platens: int = 66) -> Tuple[np.ndarray, Dict[int, List[Dict[str, Any]]]]:
     platen_avail = np.zeros(num_platens, dtype=np.int32)
@@ -67,11 +63,11 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     print(f"REPRODUCIBLE DYNAMIC EMERGENCY EVALUATION (Fixed Seed: {seed})")
     print("=" * 115)
 
-    blocks_csv = get_artifact_path("features", "featured_blocks.csv")
-    platens_csv = get_artifact_path("features", "featured_platens.csv")
-    master_sched_csv = get_artifact_path("schedules", "ortools_scheduling_results.csv")
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
+    master_sched_csv = get_schedule_path("ortools_scheduling_results.csv")
     if not os.path.exists(master_sched_csv):
-        master_sched_csv = get_artifact_path("schedules", "ppo_scheduling_results.csv")
+        master_sched_csv = get_schedule_path("ppo_scheduling_results.csv")
 
     df_platens = pd.read_csv(platens_csv).sort_values(by="seq_id").reset_index(drop=True)
     num_platens = len(df_platens)
@@ -92,9 +88,9 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     sim_ppo = ShipyardPlatenSimulator(df_emergency, df_platens, order_by="raw")
     sim_ppo.platen_available_days = base_occupancy.copy()
 
-    ppo_model_path = get_artifact_path("models", "best_rl_model.pth")
+    ppo_model_path = get_model_path("best_rl_model.pth")
     if not os.path.exists(ppo_model_path):
-        ppo_model_path = get_artifact_path("models", "ppo_model.pth")
+        ppo_model_path = get_model_path("ppo_model.pth")
 
     device = torch.device("cpu")
     ppo_net = MaskedActorCritic(sim_ppo._get_state().shape[0], sim_ppo.num_platens).to(device)
@@ -194,9 +190,6 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     print(df_comp.to_string(index=False))
     print("=" * 115)
 
-    experiments_dir = os.path.join(base_dir, "data/processed/experiments")
-    os.makedirs(experiments_dir, exist_ok=True)
-
     output_artifact = {
         "metadata": {
             "evaluation_seed": seed,
@@ -219,11 +212,11 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
         }
     }
 
-    out_json = os.path.join(experiments_dir, "dynamic_scenario_results.json")
+    out_json = os.path.join(EXPERIMENTS_DIR, "dynamic_scenario_results.json")
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(output_artifact, f, indent=2)
 
-    out_csv = os.path.join(experiments_dir, "dynamic_scenario_results.csv")
+    out_csv = os.path.join(EXPERIMENTS_DIR, "dynamic_scenario_results.csv")
     df_comp.to_csv(out_csv, index=False)
 
     print(f"Saved dynamic scenario artifact to: {out_json}")

@@ -1,38 +1,34 @@
 # modeling/benchmark_comparison.py
 """
 ================================================================================
-Comprehensive Benchmark Comparison & Performance Visualization
+Comprehensive Multi-Algorithm Benchmark Comparison & Execution Time Aggregator
 ================================================================================
 """
 
 import os
 import sys
 import json
-import numpy as np
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 
+from utils.paths import get_feature_path, get_schedule_path, get_report_path, REPORTS_DIR
 from modeling.eval_metrics import SafeScheduleReader, MetricEvaluator
 
-def get_metrics_json_path():
-    cand1 = os.path.join(base_dir, "data/processed/reports/benchmark_metrics.json")
-    cand2 = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
-    return cand1 if os.path.exists(cand1) else cand2
+def get_metrics_json_path() -> str:
+    return get_report_path("benchmark_metrics.json")
 
 def generate_benchmark_report():
-    data_dir = os.path.join(base_dir, "data/standardized")
-    features_dir = os.path.join(base_dir, "data/processed/features")
-    schedules_dir = os.path.join(base_dir, "data/processed/schedules")
-    reports_dir = os.path.join(base_dir, "data/processed/reports")
-    processed_dir = os.path.join(base_dir, "data/processed")
-    os.makedirs(reports_dir, exist_ok=True)
+    print("=" * 115)
+    print("COMPREHENSIVE BENCHMARK EVALUATION ACROSS ALL REGISTERED ALGORITHMS")
+    print("=" * 115)
 
-    blocks_csv = os.path.join(features_dir, "featured_blocks.csv") if os.path.exists(os.path.join(features_dir, "featured_blocks.csv")) else os.path.join(processed_dir, "featured_blocks.csv")
-    platens_csv = os.path.join(features_dir, "featured_platens.csv") if os.path.exists(os.path.join(features_dir, "featured_platens.csv")) else os.path.join(processed_dir, "featured_platens.csv")
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
@@ -46,12 +42,7 @@ def generate_benchmark_report():
             metrics_store = {}
 
     def find_csv(filename: str) -> str:
-        c1 = os.path.join(schedules_dir, filename)
-        c2 = os.path.join(processed_dir, filename)
-        c3 = os.path.join(data_dir, filename)
-        if os.path.exists(c1): return c1
-        if os.path.exists(c2): return c2
-        return c3
+        return get_schedule_path(filename)
 
     algorithm_registry = [
         {
@@ -211,7 +202,7 @@ def generate_benchmark_report():
         plt.legend(handles=legend_elements, loc="lower right", frameon=True)
 
         plt.tight_layout()
-        chart_path = os.path.join(reports_dir, "algorithm_benchmark_comparison.png")
+        chart_path = os.path.join(REPORTS_DIR, "algorithm_benchmark_comparison.png")
         plt.savefig(chart_path, dpi=300)
         print(f"\nSaved updated benchmark chart to: {chart_path}")
     except Exception as e:

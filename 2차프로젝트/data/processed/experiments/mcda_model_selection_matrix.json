@@ -1,58 +1,58 @@
 [
   {
-    "Candidate Model": "Google OR-Tools CP-SAT",
-    "Target Deployment Role": "Master Production Optimizer",
-    "Makespan (Days)": 1210,
-    "Delayed Blocks": 246,
-    "Delayed Rate (%)": 28.21,
-    "Avg Delay (Days)": 50.53,
-    "Platen Util (%)": 29.41,
-    "100% Feasible": true,
-    "Total 872-Block Time (s)": 18.92,
-    "Decision Latency (ms/block)": 21.697247706422022,
-    "Training Overhead": "0s (Direct Solve)",
-    "MCDA Score (1-10)": 8.55
-  },
-  {
     "Candidate Model": "EST Heuristic Rule",
     "Target Deployment Role": "Operational Safety Fallback",
     "Makespan (Days)": 1254,
     "Delayed Blocks": 248,
-    "Delayed Rate (%)": 28.44,
+    "Delayed Rate (%)": 28.4,
     "Avg Delay (Days)": 55.8,
-    "Platen Util (%)": 28.37,
+    "Platen Util (%)": 28.4,
     "100% Feasible": true,
-    "Total 872-Block Time (s)": 12.2849,
-    "Decision Latency (ms/block)": 14.088188073394495,
+    "Total 872-Block Time (s)": 0.188,
+    "Decision Latency (ms/block)": 0.21559633027522937,
     "Training Overhead": "0s (Direct Rule)",
-    "MCDA Score (1-10)": 8.38
+    "MCDA Score (1-10)": 9.85
+  },
+  {
+    "Candidate Model": "Google OR-Tools CP-SAT",
+    "Target Deployment Role": "Master Production Optimizer",
+    "Makespan (Days)": 1215,
+    "Delayed Blocks": 249,
+    "Delayed Rate (%)": 28.6,
+    "Avg Delay (Days)": 51.1,
+    "Platen Util (%)": 29.3,
+    "100% Feasible": true,
+    "Total 872-Block Time (s)": 17.208,
+    "Decision Latency (ms/block)": 19.73394495412844,
+    "Training Overhead": "0s (Direct Solve)",
+    "MCDA Score (1-10)": 8.51
   },
   {
     "Candidate Model": "Action-Masked PPO RL (Ours)",
     "Target Deployment Role": "Real-time AI Dispatcher",
     "Makespan (Days)": 1371,
     "Delayed Blocks": 602,
-    "Delayed Rate (%)": 69.04,
-    "Avg Delay (Days)": 143.06,
-    "Platen Util (%)": 25.95,
+    "Delayed Rate (%)": 69.0,
+    "Avg Delay (Days)": 143.1,
+    "Platen Util (%)": 26.0,
     "100% Feasible": true,
     "Total 872-Block Time (s)": 0.6481,
     "Decision Latency (ms/block)": 0.7432339449541284,
     "Training Overhead": "24.6s (RL Train)",
-    "MCDA Score (1-10)": 7.83
+    "MCDA Score (1-10)": 6.8
   },
   {
     "Candidate Model": "Action-Masked DQN (Ours)",
     "Target Deployment Role": "Discrete Value Baseline",
     "Makespan (Days)": 5827,
     "Delayed Blocks": 835,
-    "Delayed Rate (%)": 95.76,
-    "Avg Delay (Days)": 1567.43,
-    "Platen Util (%)": 6.11,
+    "Delayed Rate (%)": 95.8,
+    "Avg Delay (Days)": 1567.4,
+    "Platen Util (%)": 6.1,
     "100% Feasible": true,
     "Total 872-Block Time (s)": 14.197,
     "Decision Latency (ms/block)": 16.28096330275229,
     "Training Overhead": "610.4s (DQN Train)",
-    "MCDA Score (1-10)": 2.14
+    "MCDA Score (1-10)": 2.1
   }
 ]

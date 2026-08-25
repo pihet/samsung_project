@@ -16,19 +16,18 @@ from sklearn.preprocessing import StandardScaler
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
+sys.path.append(base_dir)
 
-raw_data_dir = os.path.join(base_dir, "data/standardized")
-processed_dir = os.path.join(base_dir, "data/processed")
-os.makedirs(processed_dir, exist_ok=True)
+from utils.paths import STANDARDIZED_DIR, FEATURES_DIR, REPORTS_DIR
 
 print("=" * 80)
 print(" [Step 1: EDA] 데이터 탐색 및 피처 엔지니어링 파이프라인 가동")
 print("=" * 80)
 
 # 1. 데이터셋 로드
-df_blocks = pd.read_csv(os.path.join(raw_data_dir, "block_information.csv"))
-df_platens = pd.read_csv(os.path.join(raw_data_dir, "platen_information.csv"))
-df_initial = pd.read_csv(os.path.join(raw_data_dir, "initial_platen_status.csv"))
+df_blocks = pd.read_csv(os.path.join(STANDARDIZED_DIR, "block_information.csv"))
+df_platens = pd.read_csv(os.path.join(STANDARDIZED_DIR, "platen_information.csv"))
+df_initial = pd.read_csv(os.path.join(STANDARDIZED_DIR, "initial_platen_status.csv"))
 
 print(f" 로드 완료: 블록 {len(df_blocks)}건 | 정반 {len(df_platens)}건 | 초기점유 {len(df_initial)}건")
 
@@ -39,7 +38,7 @@ def parse_dimension(dim_str):
     parts = dim_str.split('*')
     try:
         return float(parts[0]), float(parts[1])
-    except:
+    except Exception:
         return 20.0, 20.0
 
 dim_parsed = df_platens['dimensions'].apply(parse_dimension)
@@ -76,8 +75,8 @@ cluster_labels = {
 df_blocks['cluster_name'] = df_blocks['cluster_id'].map(cluster_labels)
 
 # 5. 저장 및 차트 생성
-out_block_path = os.path.join(processed_dir, "featured_blocks.csv")
-out_platen_path = os.path.join(processed_dir, "featured_platens.csv")
+out_block_path = os.path.join(FEATURES_DIR, "featured_blocks.csv")
+out_platen_path = os.path.join(FEATURES_DIR, "featured_platens.csv")
 
 df_blocks.to_csv(out_block_path, index=False, encoding='utf-8')
 df_platens.to_csv(out_platen_path, index=False, encoding='utf-8')
@@ -99,9 +98,23 @@ axes[1, 1].set_title('4. Due Date Slack Days Buffer Distribution', fontweight='b
 axes[1, 1].legend()
 
 plt.tight_layout()
-chart_path = os.path.join(processed_dir, "eda_feature_analysis.png")
+chart_path = os.path.join(REPORTS_DIR, "eda_feature_analysis.png")
 plt.savefig(chart_path, dpi=200)
 plt.close()
 
-print(f" 결과 저장 완료: {out_block_path}")
+# 상관관계 히트맵 저장
+try:
+    plt.figure(figsize=(10, 8))
+    numeric_cols = df_blocks.select_dtypes(include=[np.number]).columns
+    corr = df_blocks[numeric_cols].corr()
+    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", cbar=True)
+    plt.title("Feature Correlation Heatmap", fontweight="bold")
+    plt.tight_layout()
+    corr_path = os.path.join(REPORTS_DIR, "correlation_heatmap.png")
+    plt.savefig(corr_path, dpi=200)
+    plt.close()
+except Exception:
+    pass
+
+print(f" 결과 저장 완료: {out_block_path}, {out_platen_path}")
 print(f" 차트 저장 완료: {chart_path}")

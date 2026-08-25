@@ -1,12 +1,7 @@
 # modeling/solver_ortools.py
 """
 ================================================================================
-Google OR-Tools CP-SAT Rolling Horizon Mathematical Optimization Solver
-================================================================================
-- Measures exact execution time using time.perf_counter() and logs to benchmark_metrics.json.
-- Aligned Infeasibility Handling:
-  If a block cannot fit in any platen physically, it is explicitly excluded from the CP-SAT model
-  and recorded as INFEASIBLE_REJECTED (is_feasible=False), matching the simulator.
+Google OR-Tools CP-SAT Rolling Horizon Mathematical Optimization Engine
 ================================================================================
 """
 
@@ -14,7 +9,7 @@ import os
 import sys
 import time
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, List, Tuple, Any
 import numpy as np
 import pandas as pd
 from ortools.sat.python import cp_model
@@ -22,78 +17,78 @@ from ortools.sat.python import cp_model
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
-sys.path.append(os.path.join(base_dir, "simulation"))
 
+from utils.paths import get_feature_path, SCHEDULES_DIR, REPORTS_DIR
 from modeling.eval_metrics import MetricEvaluator
 
-METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+METRICS_JSON = os.path.join(REPORTS_DIR, "benchmark_metrics.json")
 
 def update_metrics_json(algo_key: str, data: Dict[str, Any]):
-    os.makedirs(os.path.dirname(METRICS_JSON), exist_ok=True)
-    metrics_store = {}
+    store = {}
     if os.path.exists(METRICS_JSON):
         try:
             with open(METRICS_JSON, "r", encoding="utf-8") as f:
-                metrics_store = json.load(f)
+                store = json.load(f)
         except Exception:
-            metrics_store = {}
-    metrics_store[algo_key] = data
+            store = {}
+    store[algo_key] = data
     with open(METRICS_JSON, "w", encoding="utf-8") as f:
-        json.dump(metrics_store, f, indent=2)
+        json.dump(store, f, indent=2)
+
+def get_valid_platens_for_block(b_len: float, b_wid: float, b_wt: float, df_platens: pd.DataFrame) -> List[int]:
+    b_max, b_min = max(b_len, b_wid), min(b_len, b_wid)
+    valid_indices = []
+    for idx, p in df_platens.iterrows():
+        p_len, p_wid = float(p['platen_length_m']), float(p['platen_width_m'])
+        p_cap = float(p['crane_capacity_ton'])
+        p_max, p_min = max(p_len, p_wid), min(p_len, p_wid)
+        if b_max <= p_max and b_min <= p_min and b_wt <= p_cap:
+            valid_indices.append(int(idx))
+    return valid_indices
 
 def solve_window_cpsat(
-    df_window: pd.DataFrame,
-    df_platens: pd.DataFrame,
-    platen_start_times: np.ndarray,
+    df_window: pd.DataFrame, 
+    df_platens: pd.DataFrame, 
+    platen_start_times: np.ndarray, 
     time_limit_per_window: float = 1.0
 ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
     model = cp_model.CpModel()
-    num_blocks = len(df_window)
     num_platens = len(df_platens)
+    window_len = len(df_window)
 
-    # 1. Physical Feasibility Pre-Filtering
-    feasible_platens = {}
-    infeasible_blocks_idx = []
-
-    for b_i in range(num_blocks):
-        b = df_window.iloc[b_i]
-        b_max, b_min = max(b['length_m'], b['width_m']), min(b['length_m'], b['width_m'])
-        b_wt = float(b['weight_ton'])
-        
-        v_list = []
-        for p_i in range(num_platens):
-            p = df_platens.iloc[p_i]
-            p_max, p_min = max(p['platen_length_m'], p['platen_width_m']), min(p['platen_length_m'], p['platen_width_m'])
-            if b_max <= p_max and b_min <= p_min and b_wt <= p['crane_capacity_ton']:
-                v_list.append(p_i)
-        
-        if len(v_list) > 0:
-            feasible_platens[b_i] = v_list
-        else:
-            # Globally infeasible block -> Record for explicit rejection
-            infeasible_blocks_idx.append(b_i)
-
-    # 2. Build CP-SAT Model for Feasible Blocks Only
-    min_est = int(df_window['est_day'].min())
-    max_duration_sum = int(df_window['lead_time_days'].sum())
-    horizon = int(max(np.max(platen_start_times), min_est) + max_duration_sum + 300)
+    max_p_free = int(np.max(platen_start_times)) if len(platen_start_times) > 0 else 0
+    max_due = int(df_window['due_day'].max()) if 'due_day' in df_window.columns else 1000
+    horizon = max(max_p_free, max_due) + int(df_window['lead_time_days'].sum()) + 500
 
     start_vars = {}
     end_vars = {}
     delay_vars = {}
-    platen_intervals = {p_i: [] for p_i in range(num_platens)}
     assignment_lits = {}
+    platen_intervals = {p: [] for p in range(num_platens)}
 
-    for b_i, v_list in feasible_platens.items():
+    feasible_platens = {}
+    infeasible_blocks_idx = []
+
+    for b_i in range(window_len):
         b = df_window.iloc[b_i]
+        b_len = float(b['length_m']) if 'length_m' in b else float(b['block_length_m'])
+        b_wid = float(b['width_m']) if 'width_m' in b else float(b['block_width_m'])
+        b_wt = float(b['weight_ton'])
+        
+        v_list = get_valid_platens_for_block(b_len, b_wid, b_wt, df_platens)
+        if not v_list:
+            infeasible_blocks_idx.append(b_i)
+            continue
+        
+        feasible_platens[b_i] = v_list
+
         est_d = int(b['est_day'])
-        due_d = int(b['due_day'])
         duration = int(b['lead_time_days'])
+        due_d = int(b['due_day'])
 
         start_var = model.NewIntVar(est_d, horizon, f"start_w_b{b_i}")
-        end_var = model.NewIntVar(est_d + duration, horizon, f"end_w_b{b_i}")
+        end_var = model.NewIntVar(est_d + duration, horizon + duration, f"end_w_b{b_i}")
         model.Add(end_var == start_var + duration)
-
         start_vars[b_i] = start_var
         end_vars[b_i] = end_var
 
@@ -227,7 +222,6 @@ def solve_window_cpsat(
                 "status": "ALLOCATED"
             })
 
-    # Sort window results by seq_id order for clean recordkeeping
     window_results = sorted(window_results, key=lambda x: x['seq_id'])
     return window_results, new_platen_times
 
@@ -237,8 +231,8 @@ def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window
     print("Google OR-Tools CP-SAT Rolling Horizon Optimization")
     print("=" * 80)
 
-    block_file = os.path.join(base_dir, "data/processed/featured_blocks.csv")
-    platen_file = os.path.join(base_dir, "data/processed/featured_platens.csv")
+    block_file = get_feature_path("featured_blocks.csv")
+    platen_file = get_feature_path("featured_platens.csv")
 
     df_blocks = pd.read_csv(block_file)
     df_platens = pd.read_csv(platen_file)
@@ -272,7 +266,7 @@ def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window
     total_solve_time = round(time.perf_counter() - t_start, 4)
 
     df_out = pd.DataFrame(all_results)
-    out_csv = os.path.join(base_dir, "data/processed/ortools_scheduling_results.csv")
+    out_csv = os.path.join(SCHEDULES_DIR, "ortools_scheduling_results.csv")
     df_out.to_csv(out_csv, index=False, encoding='utf-8')
 
     evaluator = MetricEvaluator(block_file, platen_file)

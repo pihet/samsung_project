@@ -11,6 +11,12 @@ from typing import Dict, List, Tuple, Any, Union, Optional
 import numpy as np
 import pandas as pd
 
+cur_dir = os.path.dirname(os.path.abspath(__file__))
+base_dir = os.path.dirname(cur_dir)
+sys.path.append(base_dir)
+
+from utils.paths import get_feature_path, STANDARDIZED_DIR
+
 class ShipyardPlatenSimulator:
     def __init__(
         self, 
@@ -21,17 +27,9 @@ class ShipyardPlatenSimulator:
         reward_version: str = "V2",   # 'V1', 'V2', 'V3'
         order_by: str = "est_urgency" # 'est_urgency' or 'raw'
     ):
-        cur_dir = os.path.dirname(os.path.abspath(__file__))
-        base_dir = os.path.dirname(cur_dir)
-        features_dir = os.path.join(base_dir, "data/processed/features")
-        processed_dir = os.path.join(base_dir, "data/processed")
-        default_standardized_dir = os.path.join(base_dir, "data/standardized")
-
-        # 1. Load Blocks (Supports features/ folder with fallback)
+        # 1. Load Blocks
         if blocks_source is None:
-            cand1 = os.path.join(features_dir, "featured_blocks.csv")
-            cand2 = os.path.join(processed_dir, "featured_blocks.csv")
-            blocks_source = cand1 if os.path.exists(cand1) else cand2
+            blocks_source = get_feature_path("featured_blocks.csv")
 
         if isinstance(blocks_source, pd.DataFrame):
             self.df_blocks = blocks_source.copy()
@@ -40,11 +38,9 @@ class ShipyardPlatenSimulator:
         else:
             self.df_blocks = pd.read_csv(blocks_source)
 
-        # 2. Load Platens (Supports features/ folder with fallback)
+        # 2. Load Platens
         if platens_source is None:
-            cand1 = os.path.join(features_dir, "featured_platens.csv")
-            cand2 = os.path.join(processed_dir, "featured_platens.csv")
-            platens_source = cand1 if os.path.exists(cand1) else cand2
+            platens_source = get_feature_path("featured_platens.csv")
 
         if isinstance(platens_source, pd.DataFrame):
             self.df_platens = platens_source.copy()
@@ -61,7 +57,7 @@ class ShipyardPlatenSimulator:
             elif os.path.exists(initial_status_source):
                 self.df_initial_status = pd.read_csv(initial_status_source)
         else:
-            std_init = os.path.join(default_standardized_dir, "initial_platen_status.csv")
+            std_init = os.path.join(STANDARDIZED_DIR, "initial_platen_status.csv")
             if os.path.exists(std_init):
                 self.df_initial_status = pd.read_csv(std_init)
 

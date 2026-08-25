@@ -3,13 +3,6 @@
 ================================================================================
 Action-Masked Deep Q-Network (DQN) for Shipyard Platen Scheduling
 ================================================================================
-- Features:
-  * Fixed 208-dim state input
-  * Action-masked epsilon-greedy exploration & safe target Q estimation
-  * Explicit rejection handling without -1e9 Q-value pollution
-  * Seed protocol (42, 100, 2024) and time.perf_counter() measurement
-  * Output CSV & benchmark_metrics.json integration
-================================================================================
 """
 
 import os
@@ -30,10 +23,11 @@ base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
+from utils.paths import get_feature_path, MODELS_DIR, SCHEDULES_DIR, REPORTS_DIR
 from simulation.gym_env import ShipyardPlatenGymEnv
 from modeling.eval_metrics import MetricEvaluator
 
-METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+METRICS_JSON = os.path.join(REPORTS_DIR, "benchmark_metrics.json")
 
 def set_global_seeds(seed: int = 42):
     random.seed(seed)
@@ -56,53 +50,42 @@ def update_metrics_json(algo_key: str, data: Dict[str, Any]):
         json.dump(metrics_store, f, indent=2)
 
 class MaskedQNetwork(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
+    def __init__(self, state_dim: int = 208, action_dim: int = 66, hidden_dim: int = 256):
         super(MaskedQNetwork, self).__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, 256),
-            nn.LayerNorm(256),
+            nn.Linear(state_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, action_dim)
+            nn.Linear(hidden_dim, action_dim)
         )
 
-    def forward(self, state: torch.Tensor) -> torch.Tensor:
-        return self.net(state)
-
-    def get_action(self, state: torch.Tensor, mask: torch.Tensor, epsilon: float = 0.0) -> int:
-        valid_indices = torch.where(mask)[0]
-        if len(valid_indices) == 0:
-            return 0  # Infeasible block
-
-        if random.random() < epsilon:
-            idx = random.choice(valid_indices.tolist())
-            return idx
-        else:
-            q_values = self.forward(state)
-            masked_q = torch.where(mask, q_values, torch.tensor(-1e9, device=state.device))
-            return torch.argmax(masked_q).item()
+    def forward(self, state: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        q_values = self.net(state)
+        if mask is not None:
+            # Safe large negative value for invalid actions without float overflow
+            q_values = torch.where(mask, q_values, torch.tensor(-1e4, device=q_values.device))
+        return q_values
 
 class ReplayBuffer:
     def __init__(self, capacity: int = 50000):
         self.buffer = deque(maxlen=capacity)
 
-    def push(self, state, action, reward, next_state, done, next_mask):
-        self.buffer.append((state, action, reward, next_state, done, next_mask))
+    def push(self, state, action, reward, next_state, next_mask, done):
+        self.buffer.append((state, action, reward, next_state, next_mask, done))
 
     def sample(self, batch_size: int):
         batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones, next_masks = zip(*batch)
+        state, action, reward, next_state, next_mask, done = zip(*batch)
         return (
-            np.array(states, dtype=np.float32),
-            np.array(actions, dtype=np.int64),
-            np.array(rewards, dtype=np.float32),
-            np.array(next_states, dtype=np.float32),
-            np.array(dones, dtype=np.float32),
-            np.array(next_masks, dtype=bool)
+            torch.FloatTensor(np.array(state)),
+            torch.LongTensor(action),
+            torch.FloatTensor(reward),
+            torch.FloatTensor(np.array(next_state)),
+            torch.BoolTensor(np.array(next_mask)),
+            torch.FloatTensor(done)
         )
 
     def __len__(self):
@@ -113,22 +96,19 @@ class DQNTrainer:
         self,
         lr: float = 3e-4,
         gamma: float = 0.99,
+        batch_size: int = 128,
         buffer_capacity: int = 50000,
-        batch_size: int = 64,
         target_update_freq: int = 5,
-        feature_version: str = "V2",
-        reward_version: str = "V2",
         seed: int = 42
     ):
+        set_global_seeds(seed)
+        self.env = ShipyardPlatenGymEnv(feature_version="V2", reward_version="V2", order_by="est_urgency")
+        self.state_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.n
         self.gamma = gamma
         self.batch_size = batch_size
         self.target_update_freq = target_update_freq
         self.seed = seed
-        set_global_seeds(self.seed)
-
-        self.env = ShipyardPlatenGymEnv(feature_version=feature_version, reward_version=reward_version)
-        self.state_dim = self.env.observation_space.shape[0]
-        self.action_dim = self.env.action_space.n
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.q_net = MaskedQNetwork(self.state_dim, self.action_dim).to(self.device)
@@ -137,70 +117,94 @@ class DQNTrainer:
         self.target_net.eval()
 
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
-        self.buffer = ReplayBuffer(capacity=buffer_capacity)
+        self.memory = ReplayBuffer(buffer_capacity)
+        self.loss_fn = nn.SmoothL1Loss()
+
+    def select_action(self, state: np.ndarray, mask: np.ndarray, epsilon: float = 0.1) -> int:
+        valid_actions = np.where(mask)[0]
+        if len(valid_actions) == 0:
+            return 0  # Simulator will handle fallback safely
+
+        if random.random() < epsilon:
+            return int(random.choice(valid_actions))
+
+        with torch.no_grad():
+            s_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            m_tensor = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
+            q_values = self.q_net(s_tensor, m_tensor)
+            return int(torch.argmax(q_values, dim=1).item())
+
+    def update_model(self):
+        if len(self.memory) < self.batch_size:
+            return 0.0
+
+        states, actions, rewards, next_states, next_masks, dones = self.memory.sample(self.batch_size)
+        states = states.to(self.device)
+        actions = actions.unsqueeze(1).to(self.device)
+        rewards = rewards.unsqueeze(1).to(self.device)
+        next_states = next_states.to(self.device)
+        next_masks = next_masks.to(self.device)
+        dones = dones.unsqueeze(1).to(self.device)
+
+        # Current Q-values
+        curr_q = self.q_net(states).gather(1, actions)
+
+        # Double DQN / Target Q-values with Action Masking
+        with torch.no_grad():
+            next_q = self.target_net(next_states, next_masks)
+            # Check if any next action is valid
+            has_valid_next = next_masks.any(dim=1, keepdim=True)
+            max_next_q, _ = torch.max(next_q, dim=1, keepdim=True)
+            # If no valid actions in next state, treat as terminal Q=0
+            max_next_q = torch.where(has_valid_next, max_next_q, torch.zeros_like(max_next_q))
+            target_q = rewards + (1.0 - dones) * self.gamma * max_next_q
+
+        loss = self.loss_fn(curr_q, target_q)
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=1.0)
+        self.optimizer.step()
+        return loss.item()
 
     def train_episode(self, epsilon: float) -> Tuple[float, int, int]:
-        obs, info = self.env.reset(seed=self.seed)
-        terminated = False
-        total_loss = 0.0
+        obs, info = self.env.reset()
+        total_reward = 0.0
+        done = False
 
-        while not terminated:
-            state_t = torch.FloatTensor(obs).to(self.device)
-            mask_t = torch.BoolTensor(info["action_mask"]).to(self.device)
+        while not done:
+            mask = info['action_mask']
+            action = self.select_action(obs, mask, epsilon)
+            next_obs, reward, terminated, truncated, next_info = self.env.step(action)
+            done = terminated or truncated
 
-            action = self.q_net.get_action(state_t, mask_t, epsilon=epsilon)
-            next_obs, reward, terminated, _, next_info = self.env.step(action)
-
-            self.buffer.push(obs, action, reward, next_obs, terminated, next_info["action_mask"])
+            next_mask = next_info.get('action_mask', np.ones(self.action_dim, dtype=bool))
+            self.memory.push(obs, action, reward, next_obs, next_mask, float(done))
 
             obs = next_obs
             info = next_info
-
-            # Gradient step
-            if len(self.buffer) >= self.batch_size:
-                b_states, b_actions, b_rewards, b_next_states, b_dones, b_next_masks = self.buffer.sample(self.batch_size)
-
-                states_t = torch.FloatTensor(b_states).to(self.device)
-                actions_t = torch.LongTensor(b_actions).unsqueeze(1).to(self.device)
-                rewards_t = torch.FloatTensor(b_rewards).unsqueeze(1).to(self.device)
-                next_states_t = torch.FloatTensor(b_next_states).to(self.device)
-                dones_t = torch.FloatTensor(b_dones).unsqueeze(1).to(self.device)
-                next_masks_t = torch.BoolTensor(b_next_masks).to(self.device)
-
-                curr_q = self.q_net(states_t).gather(1, actions_t)
-
-                with torch.no_grad():
-                    next_q_all = self.target_net(next_states_t)
-                    # Safe action-masked target estimation
-                    masked_next_q = torch.where(next_masks_t, next_q_all, torch.tensor(-1e9, device=self.device))
-                    max_next_q = torch.max(masked_next_q, dim=1, keepdim=True)[0]
-                    # Replace -1e9 for all-False masks (terminal / infeasible) with 0.0
-                    max_next_q = torch.where(max_next_q < -1e8, torch.tensor(0.0, device=self.device), max_next_q)
-                    target_q = rewards_t + (1 - dones_t) * self.gamma * max_next_q
-
-                loss = nn.MSELoss()(curr_q, target_q)
-                self.optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
-                self.optimizer.step()
-                total_loss += loss.item()
+            total_reward += reward
+            self.update_model()
 
         metrics = self.env.simulator.get_summary_metrics()
-        return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
+        return total_reward, metrics['makespan'], metrics['delayed_blocks']
 
-    def evaluate_and_save(self, training_time_sec: float = 0.0) -> Tuple[Dict[str, Any], float]:
-        """Strict Greedy evaluation without exploration noise."""
-        t_eval_start = time.perf_counter()
-        obs, info = self.env.reset(seed=self.seed)
-        terminated = False
+    def evaluate_and_save(self, training_time_sec: float) -> Tuple[Dict[str, Any], float]:
         self.q_net.eval()
+        t_eval_start = time.perf_counter()
+        obs, info = self.env.reset()
+        terminated = False
 
         while not terminated:
-            state_t = torch.FloatTensor(obs).to(self.device)
-            mask_t = torch.BoolTensor(info["action_mask"]).to(self.device)
-
-            with torch.no_grad():
-                action = self.q_net.get_action(state_t, mask_t, epsilon=0.0)
+            mask = info['action_mask']
+            valid_actions = np.where(mask)[0]
+            if len(valid_actions) == 0:
+                action = 0
+            else:
+                with torch.no_grad():
+                    s_tensor = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
+                    m_tensor = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
+                    q_vals = self.q_net(s_tensor, m_tensor)
+                    action = int(torch.argmax(q_vals, dim=1).item())
 
             next_obs, _, terminated, _, next_info = self.env.step(action)
             obs = next_obs
@@ -209,14 +213,14 @@ class DQNTrainer:
         eval_inference_time = round(time.perf_counter() - t_eval_start, 4)
 
         df_out = pd.DataFrame(self.env.simulator.allocation_history)
-        out_csv = os.path.join(base_dir, "data/processed/dqn_scheduling_results.csv")
+        out_csv = os.path.join(SCHEDULES_DIR, "dqn_scheduling_results.csv")
         df_out.to_csv(out_csv, index=False)
 
-        model_path = os.path.join(base_dir, "data/processed/dqn_model.pth")
+        model_path = os.path.join(MODELS_DIR, "dqn_model.pth")
         torch.save(self.q_net.state_dict(), model_path)
 
-        blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
-        platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
+        blocks_csv = get_feature_path("featured_blocks.csv")
+        platens_csv = get_feature_path("featured_platens.csv")
         evaluator = MetricEvaluator(blocks_csv, platens_csv)
         eval_res = evaluator.evaluate(df_out, "Action-Masked DQN (Ours)")
 

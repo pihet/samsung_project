@@ -3,12 +3,6 @@
 ================================================================================
 Action-Masked Proximal Policy Optimization (PPO) for Shipyard Platen Scheduling
 ================================================================================
-- Features:
-  * Fixed 208-dim state input
-  * Single-variable Ablation Support (feature_version V1/V2, reward_version V1/V2/V3)
-  * Seed protocol (42, 100, 2024) and time.perf_counter() measurement
-  * Output CSV & benchmark_metrics.json integration
-================================================================================
 """
 
 import os
@@ -22,17 +16,18 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.distributions import Categorical
+from torch.distributions.categorical import Categorical
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
+from utils.paths import get_feature_path, MODELS_DIR, SCHEDULES_DIR, REPORTS_DIR, EXPERIMENTS_DIR
 from simulation.gym_env import ShipyardPlatenGymEnv
 from modeling.eval_metrics import MetricEvaluator
 
-METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+METRICS_JSON = os.path.join(REPORTS_DIR, "benchmark_metrics.json")
 
 def set_global_seeds(seed: int = 42):
     random.seed(seed)
@@ -55,174 +50,219 @@ def update_metrics_json(algo_key: str, data: Dict[str, Any]):
         json.dump(metrics_store, f, indent=2)
 
 class MaskedActorCritic(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
+    def __init__(self, state_dim: int = 208, action_dim: int = 66, hidden_dim: int = 256):
         super(MaskedActorCritic, self).__init__()
-        # Shared Feature Extractor
+        
+        # Shared Feature Extractor (256 -> 128)
         self.shared = nn.Sequential(
-            nn.Linear(state_dim, 256),
-            nn.LayerNorm(256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.ReLU()
+            nn.Linear(state_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.Tanh()
         )
-        # Policy Head (Actor)
+        
+        # Actor Head (128 -> 64 -> 66)
         self.actor = nn.Sequential(
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, action_dim)
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.Tanh(),
+            nn.Linear(hidden_dim // 4, action_dim)
         )
-        # Value Head (Critic)
+        
+        # Critic Head (128 -> 64 -> 1)
         self.critic = nn.Sequential(
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.Tanh(),
+            nn.Linear(hidden_dim // 4, 1)
         )
 
-    def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        feat = self.shared(state)
-        logits = self.actor(feat)
-        value = self.critic(feat)
+    def forward(self, state: torch.Tensor, mask: Optional[torch.Tensor] = None):
+        features = self.shared(state)
+        logits = self.actor(features)
+        value = self.critic(features)
+        
+        if mask is not None:
+            # Mask invalid actions with a safe finite negative number to prevent NaN
+            logits = torch.where(mask, logits, torch.tensor(-1e4, device=logits.device))
+            
         return logits, value
 
-    def get_action(self, state: torch.Tensor, mask: torch.Tensor) -> Tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
-        logits, value = self.forward(state)
-        masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
-        dist = Categorical(logits=masked_logits)
+    def get_action(self, state: torch.Tensor, mask: torch.Tensor):
+        logits, value = self.forward(state, mask)
+        dist = Categorical(logits=logits)
         action = dist.sample()
-        return action.item(), dist.log_prob(action), dist.entropy(), value.squeeze(-1)
-
-    def get_greedy_action(self, state: torch.Tensor, mask: torch.Tensor) -> int:
-        logits, _ = self.forward(state)
-        masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
-        return torch.argmax(masked_logits).item()
+        return action.item(), dist.log_prob(action), dist.entropy().mean(), value
 
     def get_eval_action(self, state: torch.Tensor, mask: torch.Tensor, temperature: float = 0.5) -> int:
-        logits, _ = self.forward(state)
-        masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
-        if temperature > 0.0:
-            probs = torch.softmax(masked_logits / temperature, dim=-1)
-            dist = Categorical(probs=probs)
-            return dist.sample().item()
-        return torch.argmax(masked_logits).item()
+        logits, _ = self.forward(state, mask)
+        if temperature <= 0.01:
+            return int(torch.argmax(logits, dim=-1).item())
+        else:
+            scaled_logits = logits / max(0.01, temperature)
+            dist = Categorical(logits=scaled_logits)
+            return int(dist.sample().item())
+
+    def evaluate_actions(self, states: torch.Tensor, masks: torch.Tensor, actions: torch.Tensor):
+        features = self.shared(states)
+        logits = self.actor(features)
+        values = self.critic(features)
+        
+        logits = torch.where(masks, logits, torch.tensor(-1e4, device=logits.device))
+        dist = Categorical(logits=logits)
+        
+        log_probs = dist.log_prob(actions)
+        entropy = dist.entropy()
+        return log_probs, values.squeeze(-1), entropy
 
 class PPOTrainer:
     def __init__(
         self,
-        lr: float = 3e-4,
+        lr: float = 1e-3,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
         clip_ratio: float = 0.2,
-        value_coef: float = 0.5,
         entropy_coef: float = 0.05,
+        value_coef: float = 0.5,
+        batch_size: int = 128,
+        update_epochs: int = 5,
+        seed: int = 42,
         feature_version: str = "V2",
-        reward_version: str = "V2",
-        seed: int = 42
+        reward_version: str = "V2"
     ):
-        self.gamma = gamma
-        self.gae_lambda = gae_lambda
-        self.clip_ratio = clip_ratio
-        self.value_coef = value_coef
-        self.entropy_coef = entropy_coef
+        set_global_seeds(seed)
         self.feature_version = feature_version
         self.reward_version = reward_version
         self.seed = seed
-        set_global_seeds(self.seed)
 
-        self.env = ShipyardPlatenGymEnv(feature_version=self.feature_version, reward_version=self.reward_version)
+        self.env = ShipyardPlatenGymEnv(
+            feature_version=feature_version, 
+            reward_version=reward_version, 
+            order_by="est_urgency"
+        )
         self.state_dim = self.env.observation_space.shape[0]
         self.action_dim = self.env.action_space.n
 
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.clip_ratio = clip_ratio
+        self.entropy_coef = entropy_coef
+        self.value_coef = value_coef
+        self.batch_size = batch_size
+        self.update_epochs = update_epochs
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.ac_net = MaskedActorCritic(self.state_dim, self.action_dim).to(self.device)
-        self.optimizer = optim.Adam(self.ac_net.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.ac_net.parameters(), lr=lr, eps=1e-5)
 
-    def train_episode(self) -> Tuple[float, int, int]:
-        obs, info = self.env.reset(seed=self.seed)
-        states, actions, log_probs, rewards, values, masks, dones = [], [], [], [], [], [], []
+    def collect_trajectory(self) -> Dict[str, torch.Tensor]:
+        states, actions, rewards, masks, log_probs, values, dones = [], [], [], [], [], [], []
+        obs, info = self.env.reset()
+        done = False
 
-        terminated = False
-        while not terminated:
+        while not done:
             state_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-            mask = info["action_mask"]
-            mask_t = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
-
+            mask_t = torch.BoolTensor(info['action_mask']).unsqueeze(0).to(self.device)
+            
             with torch.no_grad():
                 action, log_prob, _, val = self.ac_net.get_action(state_t, mask_t)
 
-            next_obs, reward, terminated, _, next_info = self.env.step(action)
+            next_obs, reward, terminated, truncated, next_info = self.env.step(action)
+            done = terminated or truncated
 
             states.append(obs)
             actions.append(action)
-            log_probs.append(log_prob.item())
             rewards.append(reward)
+            masks.append(info['action_mask'])
+            log_probs.append(log_prob.item())
             values.append(val.item())
-            masks.append(mask)
-            dones.append(terminated)
+            dones.append(done)
 
             obs = next_obs
             info = next_info
 
-        # Generalized Advantage Estimation (GAE)
+        # Compute GAE (Generalized Advantage Estimation)
         returns = []
         advantages = []
-        gae = 0
-        values.append(0)
+        gae = 0.0
+        next_val = 0.0
 
-        for step in reversed(range(len(rewards))):
-            delta = rewards[step] + self.gamma * values[step + 1] * (1 - dones[step]) - values[step]
-            gae = delta + self.gamma * self.gae_lambda * (1 - dones[step]) * gae
+        for t in reversed(range(len(rewards))):
+            delta = rewards[t] + self.gamma * next_val * (1.0 - dones[t]) - values[t]
+            gae = delta + self.gamma * self.gae_lambda * (1.0 - dones[t]) * gae
             advantages.insert(0, gae)
-            returns.insert(0, gae + values[step])
+            returns.insert(0, gae + values[t])
+            next_val = values[t]
 
-        # PPO Update
-        states_t = torch.FloatTensor(np.array(states)).to(self.device)
-        actions_t = torch.LongTensor(actions).to(self.device)
-        old_log_probs_t = torch.FloatTensor(log_probs).to(self.device)
-        returns_t = torch.FloatTensor(returns).to(self.device)
-        advantages_t = torch.FloatTensor(advantages).to(self.device)
-        advantages_t = (advantages_t - advantages_t.mean()) / (advantages_t.std() + 1e-8)
-        masks_t = torch.BoolTensor(np.array(masks)).to(self.device)
+        return {
+            'states': torch.FloatTensor(np.array(states)).to(self.device),
+            'actions': torch.LongTensor(actions).to(self.device),
+            'masks': torch.BoolTensor(np.array(masks)).to(self.device),
+            'old_log_probs': torch.FloatTensor(log_probs).to(self.device),
+            'returns': torch.FloatTensor(returns).to(self.device),
+            'advantages': torch.FloatTensor(advantages).to(self.device)
+        }
 
-        for _ in range(4):
-            logits, curr_values = self.ac_net(states_t)
-            masked_logits = torch.where(masks_t, logits, torch.tensor(-1e9, device=self.device))
-            dist = Categorical(logits=masked_logits)
-            new_log_probs = dist.log_prob(actions_t)
-            entropy = dist.entropy().mean()
+    def train_step(self, trajectory: Dict[str, torch.Tensor]) -> Tuple[float, float, float]:
+        states = trajectory['states']
+        actions = trajectory['actions']
+        masks = trajectory['masks']
+        old_log_probs = trajectory['old_log_probs']
+        returns = trajectory['returns']
+        advantages = trajectory['advantages']
 
-            ratios = torch.exp(new_log_probs - old_log_probs_t)
-            surr1 = ratios * advantages_t
-            surr2 = torch.clamp(ratios, 1.0 - self.clip_ratio, 1.0 + self.clip_ratio) * advantages_t
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        dataset_size = len(states)
 
-            actor_loss = -torch.min(surr1, surr2).mean()
-            critic_loss = nn.MSELoss()(curr_values.squeeze(-1), returns_t)
-            total_loss = actor_loss + self.value_coef * critic_loss - self.entropy_coef * entropy
+        for _ in range(self.update_epochs):
+            indices = np.arange(dataset_size)
+            np.random.shuffle(indices)
 
-            self.optimizer.zero_grad()
-            total_loss.backward()
-            nn.utils.clip_grad_norm_(self.ac_net.parameters(), 0.5)
-            self.optimizer.step()
+            for start in range(0, dataset_size, self.batch_size):
+                end = start + self.batch_size
+                batch_idx = indices[start:end]
 
-        metrics = self.env.simulator.get_summary_metrics()
-        return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
+                b_states = states[batch_idx]
+                b_actions = actions[batch_idx]
+                b_masks = masks[batch_idx]
+                b_old_log_probs = old_log_probs[batch_idx]
+                b_returns = returns[batch_idx]
+                b_advantages = advantages[batch_idx]
 
-    def evaluate_and_save(self, training_time_sec: float = 0.0, save_name: str = "ppo", temperature: float = 0.5) -> Tuple[Dict[str, Any], float]:
-        """Evaluation with exact time measurement."""
-        t_eval_start = time.perf_counter()
+                new_log_probs, new_values, entropy = self.ac_net.evaluate_actions(b_states, b_masks, b_actions)
 
-        obs, info = self.env.reset(seed=self.seed)
-        terminated = False
+                # Ratio for PPO clip
+                ratios = torch.exp(new_log_probs - b_old_log_probs)
+                surr1 = ratios * b_advantages
+                surr2 = torch.clamp(ratios, 1.0 - self.clip_ratio, 1.0 + self.clip_ratio) * b_advantages
+                actor_loss = -torch.min(surr1, surr2).mean()
+
+                # Critic loss
+                critic_loss = 0.5 * nn.MSELoss()(new_values, b_returns)
+                entropy_loss = -entropy.mean()
+
+                loss = actor_loss + self.value_coef * critic_loss + self.entropy_coef * entropy_loss
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.ac_net.parameters(), max_norm=0.5)
+                self.optimizer.step()
+
+        return actor_loss.item(), critic_loss.item(), entropy_loss.item()
+
+    def evaluate_and_save(self, save_name: str = "ppo", training_time_sec: float = 0.0) -> Tuple[Dict[str, Any], float]:
         self.ac_net.eval()
+        t_eval_start = time.perf_counter()
+        obs, info = self.env.reset()
+        terminated = False
 
         while not terminated:
             state_t = torch.FloatTensor(obs).unsqueeze(0).to(self.device)
-            mask = info["action_mask"]
-            mask_t = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
-
+            mask_t = torch.BoolTensor(info['action_mask']).unsqueeze(0).to(self.device)
+            
             with torch.no_grad():
-                action = self.ac_net.get_eval_action(state_t, mask_t, temperature=temperature)
-
+                action = self.ac_net.get_eval_action(state_t, mask_t, temperature=0.5)
+                
             next_obs, _, terminated, _, next_info = self.env.step(action)
             obs = next_obs
             info = next_info
@@ -230,14 +270,20 @@ class PPOTrainer:
         eval_inference_time = round(time.perf_counter() - t_eval_start, 4)
 
         df_out = pd.DataFrame(self.env.simulator.allocation_history)
-        out_csv = os.path.join(base_dir, f"data/processed/{save_name}_scheduling_results.csv")
-        df_out.to_csv(out_csv, index=False)
+        
+        # Decide output destination
+        if save_name == "ppo":
+            out_csv = os.path.join(SCHEDULES_DIR, f"{save_name}_scheduling_results.csv")
+            model_path = os.path.join(MODELS_DIR, f"{save_name}_model.pth")
+        else:
+            out_csv = os.path.join(EXPERIMENTS_DIR, f"{save_name}_scheduling_results.csv")
+            model_path = os.path.join(EXPERIMENTS_DIR, f"{save_name}_model.pth")
 
-        model_path = os.path.join(base_dir, f"data/processed/{save_name}_model.pth")
+        df_out.to_csv(out_csv, index=False)
         torch.save(self.ac_net.state_dict(), model_path)
 
-        blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
-        platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
+        blocks_csv = get_feature_path("featured_blocks.csv")
+        platens_csv = get_feature_path("featured_platens.csv")
         evaluator = MetricEvaluator(blocks_csv, platens_csv)
         eval_res = evaluator.evaluate(df_out, "PPO Actor-Critic (Ours)")
 
@@ -260,20 +306,29 @@ def train_ppo_pipeline(episodes: int = 30, seed: int = 42, feature_version: str 
     print(f"Training Action-Masked PPO for {episodes} Episodes (Seed: {seed}, Feat: {feature_version}, Reward: {reward_version})")
     print("=" * 80)
 
-    trainer = PPOTrainer(lr=3e-4, entropy_coef=0.05, feature_version=feature_version, reward_version=reward_version, seed=seed)
+    trainer = PPOTrainer(
+        lr=1e-3, 
+        entropy_coef=0.05, 
+        seed=seed, 
+        feature_version=feature_version, 
+        reward_version=reward_version
+    )
     t_train_start = time.perf_counter()
 
     for ep in range(1, episodes + 1):
-        r, m, d = trainer.train_episode()
+        trajectory = trainer.collect_trajectory()
+        aloss, closs, eloss = trainer.train_step(trajectory)
+        metrics = trainer.env.simulator.get_summary_metrics()
+
         if ep % 10 == 0 or ep == 1:
-            print(f"   [Episode {ep:>3}/{episodes}] Reward: {r:>8.1f} | Makespan: {m:>4}d | Delayed: {d:>3}/872")
+            print(f"   [Episode {ep:>3}/{episodes}] Reward: {metrics['total_reward']:>8.1f} | Makespan: {metrics['makespan']:>4}d | Delayed: {metrics['delayed_blocks']:>3}/872")
 
     training_time = time.perf_counter() - t_train_start
-    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Evaluation...")
+    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Strict Policy Evaluation...")
 
-    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time, save_name="ppo", temperature=0.5)
+    eval_res, eval_time = trainer.evaluate_and_save(save_name="ppo", training_time_sec=training_time)
     print("=" * 80)
-    print("PPO Actor-Critic Final Evaluation Results")
+    print("Action-Masked PPO Final Evaluation Results")
     print("=" * 80)
     print(f"   Makespan: {eval_res['makespan_days']} Days")
     print(f"   Delayed Blocks: {eval_res['delayed_blocks_count']} / 872 ({eval_res['delayed_blocks_pct']}%)")
@@ -287,4 +342,4 @@ def train_ppo_pipeline(episodes: int = 30, seed: int = 42, feature_version: str 
     return eval_res
 
 if __name__ == "__main__":
-    train_ppo_pipeline(episodes=30, seed=42, feature_version="V2", reward_version="V2")
+    train_ppo_pipeline(episodes=30, seed=42)

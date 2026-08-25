@@ -15,23 +15,19 @@ cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 
+from utils.paths import get_feature_path, get_schedule_path, get_report_path, EXPERIMENTS_DIR
 from modeling.eval_metrics import SafeScheduleReader, MetricEvaluator
-
-def get_artifact_path(subfolder: str, filename: str) -> str:
-    c1 = os.path.join(base_dir, f"data/processed/{subfolder}/{filename}")
-    c2 = os.path.join(base_dir, f"data/processed/{filename}")
-    return c1 if os.path.exists(c1) else c2
 
 def generate_mcda_matrix():
     print("=" * 115)
     print("MCDA EVALUATION MATRIX (DIRECT ARTIFACT & BENCHMARK METRICS INTEGRATION)")
     print("=" * 115)
 
-    blocks_csv = get_artifact_path("features", "featured_blocks.csv")
-    platens_csv = get_artifact_path("features", "featured_platens.csv")
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-    metrics_json_path = get_artifact_path("reports", "benchmark_metrics.json")
+    metrics_json_path = get_report_path("benchmark_metrics.json")
     metrics_store = {}
     if os.path.exists(metrics_json_path):
         with open(metrics_json_path, "r", encoding="utf-8") as f:
@@ -41,7 +37,7 @@ def generate_mcda_matrix():
         {
             "name": "Google OR-Tools CP-SAT",
             "key": "ortools",
-            "sched_csv": get_artifact_path("schedules", "ortools_scheduling_results.csv"),
+            "sched_csv": get_schedule_path("ortools_scheduling_results.csv"),
             "role": "Master Production Optimizer",
             "deployment": "Batch (Weekly/Monthly)",
             "train_overhead_score": 10.0,
@@ -50,7 +46,7 @@ def generate_mcda_matrix():
         {
             "name": "EST Heuristic Rule",
             "key": "heuristic_est",
-            "sched_csv": get_artifact_path("schedules", "heuristic_est_results.csv"),
+            "sched_csv": get_schedule_path("heuristic_est_results.csv"),
             "role": "Operational Safety Fallback",
             "deployment": "Real-time & Zero-cost Fallback",
             "train_overhead_score": 10.0,
@@ -59,7 +55,7 @@ def generate_mcda_matrix():
         {
             "name": "Action-Masked PPO RL (Ours)",
             "key": "ppo",
-            "sched_csv": get_artifact_path("schedules", "ppo_scheduling_results.csv"),
+            "sched_csv": get_schedule_path("ppo_scheduling_results.csv"),
             "role": "Real-time AI Dispatcher",
             "deployment": "Real-time Event Engine",
             "train_overhead_score": 9.0,
@@ -68,7 +64,7 @@ def generate_mcda_matrix():
         {
             "name": "Action-Masked DQN (Ours)",
             "key": "dqn",
-            "sched_csv": get_artifact_path("schedules", "dqn_scheduling_results.csv"),
+            "sched_csv": get_schedule_path("dqn_scheduling_results.csv"),
             "role": "Discrete Value Baseline",
             "deployment": "Offline Reference",
             "train_overhead_score": 3.0,
@@ -138,11 +134,8 @@ def generate_mcda_matrix():
     print(df_display.to_string(index=False))
     print("=" * 115)
 
-    experiments_dir = os.path.join(base_dir, "data/processed/experiments")
-    os.makedirs(experiments_dir, exist_ok=True)
-
-    out_csv = os.path.join(experiments_dir, "mcda_model_selection_matrix.csv")
-    out_json = os.path.join(experiments_dir, "mcda_model_selection_matrix.json")
+    out_csv = os.path.join(EXPERIMENTS_DIR, "mcda_model_selection_matrix.csv")
+    out_json = os.path.join(EXPERIMENTS_DIR, "mcda_model_selection_matrix.json")
     df_display.to_csv(out_csv, index=False)
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(df_display.to_dict(orient="records"), f, indent=2)

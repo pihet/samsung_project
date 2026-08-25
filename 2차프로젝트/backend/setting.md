@@ -6,6 +6,8 @@
 
 ## Step 1. FastAPI 애플리케이션 및 데이터 ConfigMap 등록
 
+`data/processed` 내부가 5대 하위 폴더(`features/`, `models/`, `schedules/`, `reports/`, `experiments/`)로 구조화되었습니다.
+
 ```bash
 # 1. 2차프로젝트 폴더로 이동
 cd ~/workspace/samsung_project/2차프로젝트
@@ -18,13 +20,16 @@ kubectl create configmap fastapi-serving-app \
 
 # 3. 모델 결과 및 피처 데이터셋(featured_platens, ortools, ppo, dqn)을 ConfigMap으로 등록
 kubectl create configmap fastapi-data-processed \
-  --from-file=data/processed/featured_platens.csv \
-  --from-file=data/processed/ortools_scheduling_results.csv \
-  --from-file=data/processed/ppo_scheduling_results.csv \
-  --from-file=data/processed/dqn_scheduling_results.csv \
+  --from-file=data/processed/features/featured_platens.csv \
+  --from-file=data/processed/schedules/ortools_scheduling_results.csv \
+  --from-file=data/processed/schedules/ppo_scheduling_results.csv \
+  --from-file=data/processed/schedules/dqn_scheduling_results.csv \
   --namespace default \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
+
+> **[TODO: K8s Volume Mount Notice]**  
+> `backend/k8s/fastapi-serving.yaml`의 컨테이너 볼륨 마운트 경로는 추후 인프라 배포 단계에서 `data/processed/features/`, `data/processed/schedules/` 등으로 일치시키거나 단일 루트 마운트로 정리할 수 있습니다.
 
 ---
 

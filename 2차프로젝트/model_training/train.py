@@ -22,6 +22,7 @@ cur_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(cur_dir)
 sys.path.append(root_dir)
 
+from utils.paths import get_feature_path, get_model_path, get_schedule_path
 from modeling.solver_ortools import run_ortools_platen_optimization
 from modeling.train_ppo import train_ppo_pipeline
 
@@ -66,23 +67,22 @@ def main():
 
     # 3. Upload Artifacts to MinIO
     print("\n--- Step 3: Uploading Model Artifacts to MinIO ---")
-    processed_dir = os.path.join(root_dir, "data/processed")
     artifacts = [
-        ("ortools_scheduling_results.csv", "schedules/ortools_scheduling_results.csv"),
-        ("ppo_scheduling_results.csv", "schedules/ppo_scheduling_results.csv"),
-        ("ppo_model.pth", "models/ppo_model.pth"),
-        ("featured_blocks.csv", "features/featured_blocks.csv"),
-        ("featured_platens.csv", "features/featured_platens.csv")
+        (get_schedule_path("ortools_scheduling_results.csv"), "schedules/ortools_scheduling_results.csv"),
+        (get_schedule_path("ppo_scheduling_results.csv"), "schedules/ppo_scheduling_results.csv"),
+        (get_model_path("best_rl_model.pth"), "models/best_rl_model.pth"),
+        (get_model_path("ppo_model.pth"), "models/ppo_model.pth"),
+        (get_feature_path("featured_blocks.csv"), "features/featured_blocks.csv"),
+        (get_feature_path("featured_platens.csv"), "features/featured_platens.csv")
     ]
 
-    for local_name, s3_key in artifacts:
-        fpath = os.path.join(processed_dir, local_name)
-        if os.path.exists(fpath):
+    for local_path, s3_key in artifacts:
+        if os.path.exists(local_path):
             try:
-                s3.upload_file(fpath, bucket_name, s3_key)
+                s3.upload_file(local_path, bucket_name, s3_key)
                 print(f"   Uploaded s3://{bucket_name}/{s3_key}")
             except Exception as e:
-                print(f"   Upload failed for {local_name}: {e}")
+                print(f"   Upload failed for {local_path}: {e}")
 
     print("\nShipyard Platen MLOps Training Job Completed Successfully.")
 

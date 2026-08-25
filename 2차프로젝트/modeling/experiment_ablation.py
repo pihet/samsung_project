@@ -1,15 +1,7 @@
 # modeling/experiment_ablation.py
 """
 ================================================================================
-Scientific Ablation Study: V1 (Vanilla) -> V2 (Feature Eng) -> V3 (Reward Eng)
-================================================================================
-- Strict Single-Variable Experimental Protocol:
-  * Same block sequence, same discrete event simulator, same action masking
-  * Fixed 208-dimensional neural network input across all versions
-  * Same episode budget (30 episodes per run)
-  * 3 Fixed Random Seeds (42, 100, 2024)
-  * Evaluation: Temperature-calibrated stochastic evaluation (tau=0.5)
-  * Statistical aggregation: Mean +/- Std
+Ablation Study: V1 (Vanilla) -> V2 (Feature Eng) -> V3 (Reward Eng)
 ================================================================================
 """
 
@@ -20,93 +12,104 @@ import json
 from typing import Dict, List, Any
 import numpy as np
 import pandas as pd
+import torch
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
+sys.path.append(os.path.join(base_dir, "simulation"))
 
-from modeling.train_ppo import PPOTrainer, set_global_seeds
+from utils.paths import get_feature_path, EXPERIMENTS_DIR
+from simulation.gym_env import ShipyardPlatenGymEnv
+from modeling.train_ppo import PPOTrainer
 from modeling.eval_metrics import MetricEvaluator
-
-EXPERIMENT_DIR = os.path.join(base_dir, "data/experiments")
-os.makedirs(EXPERIMENT_DIR, exist_ok=True)
 
 ABLATION_CONFIGS = [
     {
         "version": "V1 (Vanilla Baseline)",
+        "save_prefix": "ppo_v1_v1",
         "feature_version": "V1",
         "reward_version": "V1",
-        "description": "Base physical features only (engineered dims neutral 0.0), Linear delay penalty"
+        "description": "208-dim state (engineering feats zeroed), simple linear delay penalty"
     },
     {
-        "version": "V2 (Feature Engineering)",
+        "version": "V2 (+ Feature Engineering)",
+        "save_prefix": "ppo_v2_v1",
         "feature_version": "V2",
         "reward_version": "V1",
-        "description": "Base + Slack/Urgency/Cluster active, Linear delay penalty (Reward unchanged)"
+        "description": "208-dim state (Slack, Urgency, Cluster active), simple linear delay penalty"
     },
     {
-        "version": "V3 (Reward Engineering)",
+        "version": "V3 (+ Reward Engineering)",
+        "save_prefix": "ppo_v2_v3",
         "feature_version": "V2",
         "reward_version": "V3",
-        "description": "Full features + Multi-objective balanced reward (Feas + Area - Delay^2 - Std + Early)"
+        "description": "208-dim state (All feats active), multi-objective penalty (util, variance, early)"
     }
 ]
 
 SEEDS = [42, 100, 2024]
-EPISODES = 30
+EPISODES_PER_RUN = 30
 
 def run_ablation_study():
     print("=" * 115)
-    print("STARTING SCIENTIFIC ABLATION STUDY (V1 -> V2 -> V3) ACROSS 3 SEEDS (42, 100, 2024)")
+    print("PPO ABLATION STUDY: V1 (Vanilla) vs V2 (+Features) vs V3 (+Rewards)")
+    print(f"Protocol: {len(ABLATION_CONFIGS)} Configs x {len(SEEDS)} Seeds ({SEEDS}) x {EPISODES_PER_RUN} Episodes")
     print("=" * 115)
+
+    blocks_csv = get_feature_path("featured_blocks.csv")
+    platens_csv = get_feature_path("featured_platens.csv")
+    evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
     all_seed_results = []
 
     for cfg in ABLATION_CONFIGS:
         v_name = cfg["version"]
+        prefix = cfg["save_prefix"]
         f_ver = cfg["feature_version"]
         r_ver = cfg["reward_version"]
-        print(f"\n>>> Running Ablation Version: {v_name}")
-        print(f"    Feature: {f_ver} | Reward: {r_ver} | Budget: {EPISODES} Episodes")
+
+        print(f"\n>>> Running Ablation: {v_name}")
+        print(f"    Settings: Feat={f_ver}, Reward={r_ver} | {cfg['description']}")
 
         for seed in SEEDS:
-            set_global_seeds(seed)
+            t_start = time.perf_counter()
             trainer = PPOTrainer(
-                lr=3e-4,
-                entropy_coef=0.05,
-                feature_version=f_ver,
-                reward_version=r_ver,
-                seed=seed
+                lr=1e-3, 
+                entropy_coef=0.05, 
+                seed=seed, 
+                feature_version=f_ver, 
+                reward_version=r_ver
             )
 
-            t0 = time.perf_counter()
-            for ep in range(1, EPISODES + 1):
-                trainer.train_episode()
-            train_duration = round(time.perf_counter() - t0, 2)
+            # Train fixed 30 episodes
+            for ep in range(1, EPISODES_PER_RUN + 1):
+                traj = trainer.collect_trajectory()
+                trainer.train_step(traj)
 
-            save_tag = f"ppo_{f_ver.lower()}_{r_ver.lower()}_seed{seed}"
-            eval_res, eval_duration = trainer.evaluate_and_save(training_time_sec=train_duration, save_name=save_tag, temperature=0.5)
+            t_train_duration = time.perf_counter() - t_start
+
+            # Evaluate greedy policy
+            save_name = f"{prefix}_seed{seed}"
+            eval_res, eval_duration = trainer.evaluate_and_save(save_name=save_name, training_time_sec=t_train_duration)
 
             all_seed_results.append({
                 "Version": v_name,
-                "Feature_Ver": f_ver,
-                "Reward_Ver": r_ver,
                 "Seed": seed,
+                "Feature Version": f_ver,
+                "Reward Version": r_ver,
                 "Makespan (Days)": eval_res["makespan_days"],
                 "Delayed Blocks": eval_res["delayed_blocks_count"],
                 "Delayed (%)": eval_res["delayed_blocks_pct"],
                 "Avg Delay (Days)": eval_res["avg_delay_days_all"],
                 "Platen Util (%)": eval_res["utilization_pct"],
-                "Violations": eval_res["violations"]["total"],
-                "Feasible": "YES" if eval_res["is_100pct_feasible"] else "NO",
-                "Integrity": "PASS" if eval_res["integrity"]["passed"] else "FAIL",
-                "Train Time (s)": train_duration,
+                "Training Time (s)": round(t_train_duration, 2),
                 "Inference Time (s)": eval_duration
             })
             print(f"    [Seed {seed:>4}] Makespan: {eval_res['makespan_days']}d | Delayed: {eval_res['delayed_blocks_count']}/872 ({eval_res['delayed_blocks_pct']}%) | Feas: YES | Time: {eval_duration:.4f}s")
 
     df_raw = pd.DataFrame(all_seed_results)
-    raw_csv = os.path.join(base_dir, "data/processed/ablation_experiment_results.csv")
+    raw_csv = os.path.join(EXPERIMENTS_DIR, "ablation_experiment_results.csv")
     df_raw.to_csv(raw_csv, index=False)
 
     # Statistical Aggregation (Mean +/- Std)
@@ -143,7 +146,7 @@ def run_ablation_study():
     print(df_summary.to_string(index=False))
     print("=" * 115)
 
-    summary_json = os.path.join(base_dir, "data/processed/ablation_summary.json")
+    summary_json = os.path.join(EXPERIMENTS_DIR, "ablation_summary.json")
     with open(summary_json, "w", encoding="utf-8") as f:
         json.dump(summary_rows, f, indent=2)
 
