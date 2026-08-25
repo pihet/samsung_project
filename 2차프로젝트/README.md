@@ -8,11 +8,11 @@
 1. [프로젝트 개요 및 핵심 목표](#1-프로젝트-개요-및-핵심-목표)
 2. [전체 시스템 및 MLOps 파이프라인 아키텍처](#2-전체-시스템-및-mlops-파이프라인-아키텍처)
 3. [4대 핵심 물리/시간 제약 조건](#3-4대-핵심-물리시간-제약-조건)
-4. [마스터 스케줄링 전수 평가 (872개 블록)](#4-마스터-스케줄링-전수-평가-872개-블록)
+4. [마스터 스케줄링 전수 품질 및 연산 특성 비교 (872개 블록)](#4-마스터-스케줄링-전수-품질-및-연산-특성-비교-872개-블록)
 5. [학술 논문 베이스라인 참고 지표 (Figure 10 2D Reference)](#5-학술-논문-베이스라인-참고-지표-figure-10-2d-reference)
 6. [심층 강화학습 (PPO) 실험 및 통계 검증](#6-심층-강화학습-ppo-실험-및-통계-검증)
 7. [동적 긴급 블록 재배치 평가 (Day 100 마스터 점유 상태)](#7-동적-긴급-블록-재배치-평가-day-100-마스터-점유-상태)
-8. [다기준 의사결정 분석 (MCDA) 및 3중 하이브리드 운영 전략](#8-다기준-의사결정-분석-mcda-및-3중-하이브리드-운영-전략)
+8. [다기준 의사결정 분석 (MCDA) 및 하이브리드 운영 전략](#8-다기준-의사결정-분석-mcda-및-하이브리드-운영-전략)
 9. [프로젝트 디렉토리 구조 및 아티팩트 관리](#9-프로젝트-디렉토리-구조-및-아티팩트-관리)
 10. [실행 및 검증 가이드 (Quick Start)](#10-실행-및-검증-가이드-quick-start)
 11. [데이터 및 모델 한계점](#11-데이터-및-모델-한계점)
@@ -25,9 +25,9 @@
 본 프로젝트는 **872개 실제 블록 데이터**와 **66개 옥내/옥외 정반 환경**을 대상으로, 공기(Makespan)와 납기 지연(Lateness)을 최소화하고 돌발 이벤트에 즉각 대응하는 **지능형 생산 일정 최적화 플랫폼**을 구축했습니다.
 
 ### 3대 핵심 차별점
-1. **재현 가능한 수리 최적화 마스터 플래너 (Google OR-Tools CP-SAT)**: 50개 블록 단위 Rolling-window CP-SAT과 결정론적 탐색 제한(`max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42`)을 적용하여 전체 일정을 안정적으로 수립하고 100% SHA-256 일치 재현성을 확보.
-2. **밀리초 단위 정책 추론 (Action-Masked PPO)**: 정반 208차원 상태 벡터와 유효 행동 마스킹을 결합하여 블록당 0.74ms의 초고속 정책 추론 구조 구축.
-3. **무결점 안전 Fallback (EST Rule)**: AI 서빙 이상이나 비정상 상태 유입 시 0.19초 만에 100% 안전하게 대체하는 Circuit Breaker 설계.
+1. **재현 가능한 수리 최적화 마스터 플래너 (Google OR-Tools CP-SAT)**: 50개 블록 단위 Rolling-window CP-SAT과 결정론적 파라미터(`max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42`)를 적용하여 정기 마스터 일정을 안정적으로 수립하고 100% SHA-256 일치 재현성을 확보.
+2. **초고속 고신뢰 실시간 규칙 디스패처 (EST Rule)**: 긴급 블록 유입 시 0.14ms/block의 초고속 속도와 최소 지연(2,122일)으로 100% 제약을 준수하는 운영 기본 실시간 디스패처.
+3. **정책 개선 검증용 AI Shadow Mode (Action-Masked PPO)**: 정반 208차원 상태 벡터와 유효 행동 마스킹을 결합하여 밀리초 단위 정책 추론 가능성을 확인하고, 향후 데이터 증강 학습 후 운영 전환을 검토하는 Shadow Mode 후보.
 
 ---
 
@@ -50,10 +50,10 @@ flowchart TD
 
     subgraph Serving ["3. Real-time Event Serving (FastAPI & Kafka)"]
         Kafka[Kafka Emergency Event Stream] --> FastAPI[FastAPI Serving Engine]
-        FastAPI --> PPO["Action-Masked PPO RL Inference<br/>(~1.86 ms/block)"]
-        PPO -- "추천 실패 / 이상치" --> EST["EST Fallback Engine<br/>(~0.14 ms/block)"]
-        PPO -- "추천 성공" --> Response[Optimal Platen Response]
-        EST --> Response
+        FastAPI --> EST["EST Primary Rule Dispatcher<br/>(~0.14 ms/block, 100% Production Default)"]
+        FastAPI -. Shadow Mode .-> PPO["Action-Masked PPO AI Candidate<br/>(~1.86 ms/block, Policy Validation)"]
+        EST --> Response[Optimal Platen Response]
+        PPO -. Shadow Logging .-> Evaluation[(Model Monitoring / Comparison)]
     end
 
     subgraph Dashboard ["4. Production Monitoring Dashboard"]
@@ -79,33 +79,33 @@ flowchart TD
 
 ---
 
-## 4. 마스터 스케줄링 전수 평가 (872개 블록)
+## 4. 마스터 스케줄링 전수 품질 및 연산 특성 비교 (872개 블록)
 
 아래 표는 **동일한 872개 블록 데이터셋, 66개 정반 환경, 동일 물리 제약 시뮬레이터(Seed 42)** 하에서 전체 마스터 스케줄을 생성했을 때의 실측 결과입니다.  
 수치는 [data/processed/reports/benchmark_metrics.json](data/processed/reports/benchmark_metrics.json) 및 [data/processed/schedules/ortools_scheduling_results.csv](data/processed/schedules/ortools_scheduling_results.csv)에서 직접 집계되었습니다.
 
-| 순위 | 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 (%) | 제약 위반 (건) | 무결성 | 872개 스케줄 생성 시간 (초) | 블록당 의사결정 지연 (ms) |
-| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| 1 | **Google OR-Tools CP-SAT** | Rolling-Window 수리 최적화 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | 17.20초 | 19.72 ms |
-| 2 | **EST Heuristic** | 규칙 기반 휴리스틱 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | **0.19초** | **0.22 ms** |
-| 3 | **PPO Actor-Critic (Ours)** | 심층 강화학습 (RL) | 1,371 | 602 (69.0%) | 143.1 | 26.0% | **0** | **PASS** | 0.65초 | 0.74 ms |
-| 4 | LPT Heuristic | 규칙 기반 휴리스틱 | 1,438 | 623 (71.4%) | 211.1 | 24.7% | **0** | **PASS** | 0.23초 | 0.26 ms |
-| 5 | SPT Heuristic | 규칙 기반 휴리스틱 | 1,474 | 528 (60.6%) | 174.6 | 24.1% | **0** | **PASS** | 0.18초 | 0.21 ms |
-| 6 | RTB Heuristic | 규칙 기반 휴리스틱 | 1,560 | 677 (77.6%) | 251.1 | 22.8% | **0** | **PASS** | 0.22초 | 0.25 ms |
-| 7 | RUB Heuristic | 규칙 기반 휴리스틱 | 1,969 | 734 (84.2%) | 322.5 | 18.1% | **0** | **PASS** | 1.46초 | 1.67 ms |
-| 8 | Action-Masked DQN (Ours) | 가치 기반 강화학습 (DQN) | 5,827 | 835 (95.8%) | 1,567.4 | 6.1% | **0** | **PASS** | 14.20초 | 16.28 ms |
+| 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 (%) | 제약 위반 (건) | 무결성 | 872개 스케줄 생성 시간 (초) | 블록당 의사결정 지연 (ms) | 적합 운영 역할 |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **EST Heuristic** | 규칙 기반 휴리스틱 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | **0.19초** | **0.22 ms** | **실시간 운영 기본 디스패처 / 고속 플래너** |
+| **Google OR-Tools CP-SAT** | Rolling-Window 수리 최적화 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | 17.20초 | 19.72 ms | **다목적 제약 확장형 정기 마스터 플래너** |
+| **PPO Actor-Critic (Ours)** | 심층 강화학습 (RL) | 1,371 | 602 (69.0%) | 143.1 | 26.0% | **0** | **PASS** | 0.65초 | 0.74 ms | 정책 검증용 AI Shadow Mode |
+| **LPT Heuristic** | 규칙 기반 휴리스틱 | 1,438 | 623 (71.4%) | 211.1 | 24.7% | **0** | **PASS** | 0.23초 | 0.26 ms | 규칙 기반 비교 베이스라인 |
+| **SPT Heuristic** | 규칙 기반 휴리스틱 | 1,474 | 528 (60.6%) | 174.6 | 24.1% | **0** | **PASS** | 0.18초 | 0.21 ms | 규칙 기반 비교 베이스라인 |
+| **RTB Heuristic** | 규칙 기반 휴리스틱 | 1,560 | 677 (77.6%) | 251.1 | 22.8% | **0** | **PASS** | 0.22초 | 0.25 ms | 규칙 기반 비교 베이스라인 |
+| **RUB Heuristic** | 규칙 기반 휴리스틱 | 1,969 | 734 (84.2%) | 322.5 | 18.1% | **0** | **PASS** | 1.46초 | 1.67 ms | 규칙 기반 비교 베이스라인 |
+| **Action-Masked DQN (Ours)** | 가치 기반 강화학습 (DQN) | 5,827 | 835 (95.8%) | 1,567.4 | 6.1% | **0** | **PASS** | 14.20초 | 16.28 ms | 가치 기반 RL 비교 베이스라인 |
 
-### 결과 분석
-- **Google OR-Tools CP-SAT**: 50개 블록 단위 롤링 윈도우 방식으로 최적화하여 1,254일 Makespan 및 최소 지연(248개)을 달성했습니다. 결정론적 제한(`max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42`) 하에서 실행 간 100% SHA-256 해시 일치(`ea438f343f8402740411a7d9af467f1d3908b7460f788d93809772a7227365f9`)를 확인했습니다.
-- **EST Heuristic**: 0.19초의 빠른 속도로 CP-SAT과 대등한 1,254일의 스케줄을 도출하여 가장 효율적인 규칙 기반 베이스라인임을 입증했습니다.
-- **PPO Actor-Critic**: Action Masking을 통해 872개 전수 제약 위반 0건(100% Feasible)과 블록당 0.74ms의 빠른 추론을 달성했으나, 전수 스케줄링 품질(1,371일, 지연 602개)은 OR-Tools 및 EST보다 낮았습니다.
+### 결과 및 특성 분석
+- **EST Heuristic**: 0.19초 만에 872개 전체 스케줄을 산출하며, CP-SAT과 동일한 최우수 Makespan(1,254일) 및 최소 지연(248개)을 달성하여 **가장 가성비와 안정성이 높은 실시간 메인 엔진**임을 실증했습니다.
+- **Google OR-Tools CP-SAT**: 50개 블록 단위 Rolling-Window CP-SAT 수리 최적화를 통해 1,254일 Makespan을 달성했습니다. `max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42` 설정 하에서 2회 연속 실행 간 스케줄 CSV의 100% SHA-256 해시 일치(`ea438f343f8402740411a7d9af467f1d3908b7460f788d93809772a7227365f9`)를 확인했습니다. 복합 목적함수 및 추가 비즈니스 제약 확장이 용이한 정기 마스터 플래너로 적합합니다.
+- **PPO Actor-Critic**: Action Masking을 통해 872개 전수 제약 위반 0건(100% Feasible)과 0.74ms/block의 빠른 신경망 정책 추론 구조를 확보했으나, 현재 학습 수준에서는 스케줄 품질(1,371일, 지연 602개)이 EST 및 OR-Tools보다 낮아 추가 학습이 필요합니다.
 
 ---
 
 ## 5. 학술 논문 베이스라인 참고 지표 (Figure 10 2D Reference)
 
 아래 표는 선행 학술 연구 논문의 Figure 10에 기록된 2D 기하 패킹 시뮬레이터 기준 성능입니다.  
-본 프로젝트의 순차 점유 시뮬레이터와 가정 및 환경이 다르므로 **직접적인 순위 비교 대상이 아니며 참고 기준선(Reference Baseline)**으로만 제시합니다.
+본 프로젝트의 순차 점유 시뮬레이터와 가정 및 환경이 다르므로 **직접적인 성능 우열 비교 대상이 아니며 참고 기준선(Reference Baseline)**으로만 제시합니다.
 
 | 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 (%) | 비고 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
@@ -143,25 +143,24 @@ flowchart TD
 스케줄 운영 도중(Day 100 마스터 스케줄 점유 상태) **긴급 5개 블록이 돌발 유입**되었을 때 실시간 대응 성능을 평가한 결과입니다.  
 수치는 [data/processed/experiments/dynamic_scenario_results.json](data/processed/experiments/dynamic_scenario_results.json)에서 직접 추출되었습니다.
 
-| 평가 항목 | Action-Masked PPO RL (Ours) | EST Heuristic Rule | Google OR-Tools CP-SAT |
+| 평가 항목 | EST Heuristic Rule | Action-Masked PPO RL (Ours) | Google OR-Tools CP-SAT |
 | :--- | :---: | :---: | :---: |
-| **운영 역할** | 실시간 AI 디스패처 | 규칙 기반 안전 Fallback | 정기 마스터 플래너 |
-| **5개 긴급 블록 총 배정 시간** | **9.30 ms** | **0.67 ms** | N/A (전체 재최적화 미수행) |
-| **블록당 평균 의사결정 지연** | **1.861 ms / block** | **0.135 ms / block** | N/A |
-| **긴급 블록 총 지연 일수** | **3,023일** | **2,122일** | N/A |
-| **긴급 블록 평균 지연 일수** | **604.6일** | **424.4일** | N/A |
+| **운영 역할** | **운영 기본 규칙 기반 디스패처** | **AI 추천 / Shadow Mode 후보** | 정기 마스터 플래너 |
+| **5개 긴급 블록 총 배정 시간** | **0.67 ms** | **9.30 ms** | N/A (전체 재최적화 미수행) |
+| **블록당 평균 의사결정 지연** | **0.135 ms / block** | **1.861 ms / block** | N/A |
+| **긴급 블록 총 지연 일수** | **2,122일** | **3,023일** | N/A |
+| **긴급 블록 평균 지연 일수** | **424.4일** | **604.6일** | N/A |
 | **긴급 블록 지연 수 (율)** | **5 / 5 (100%)** | **5 / 5 (100%)** | N/A |
 | **물리적 제약 위반 건수** | **0건 (100% Feasible)** | **0건 (100% Feasible)** | N/A |
 | **기존 마스터 스케줄 간섭** | **0건 (정반 큐 안전 적재)** | **0건 (정반 큐 안전 적재)** | N/A |
 
-### 정직한 평가 및 한계점
-- **PPO는 제약을 만족하는 밀리초 단위(1.86ms) 정책 추론 가능성을 확인했으나, 현재 학습 범위에서는 EST보다 동적 재배치 품질(총 지연 3,023일 vs 2,122일)과 속도(9.30ms vs 0.67ms) 모두 우수하지 않았습니다.**
-- **원인 분석 (분포 변화, Distribution Shift)**: PPO는 Day 0부터 빈 정반에 순차 투입되는 환경으로 학습되었기 때문에, 정반 점유일이 1,000일 이상 차 있는 중간 상태에서는 상태 공간 분포 변화를 겪습니다.
-- **향후 과제**: 돌발 긴급 블록을 에피소드 중간에 강제 투입하는 학습 데이터 증강(Curriculum RL) 및 파인튜닝이 필수 후속 과제입니다.
+### 정직한 평가 및 운영 전략 결론
+- **운영 방침**: 긴급 블록 유입 시 **EST를 운영 기본 규칙 기반 디스패처로 사용**하고, **PPO는 정책 개선 효과를 검증하기 위한 AI 추천·Shadow Mode 후보로 운영**합니다.
+- **PPO 운영 전환 조건**: PPO는 제약을 만족하는 밀리초 단위(1.86ms) 정책 추론 가능성을 확인했으나, 현재 학습 범위에서는 EST보다 동적 재배치 품질(총 지연 3,023일 vs 2,122일)과 속도(9.30ms vs 0.67ms) 모두 우수하지 않았습니다. 따라서 PPO의 메인 운영 전환은 돌발 이벤트를 포함한 학습 데이터 증강(Curriculum RL) 및 파인튜닝 후 EST 대비 품질·속도 재검증을 통과한 경우에만 검토합니다.
 
 ---
 
-## 8. 다기준 의사결정 분석 (MCDA) 및 3중 하이브리드 운영 전략
+## 8. 다기준 의사결정 분석 (MCDA) 및 하이브리드 운영 전략
 
 수치는 [data/processed/experiments/mcda_model_selection_matrix.json](data/processed/experiments/mcda_model_selection_matrix.json)에서 직접 집계되었습니다:
 
@@ -169,17 +168,17 @@ $$
 \text{MCDA Score} = 10 \times \left[ 0.35 \frac{\text{Min Makespan}}{\text{Makespan}} + 0.25 \frac{\text{Min Delay}}{\text{Delay}} + 0.15 \frac{\text{Util}}{\text{Max Util}} + 0.15 \frac{\text{Min Latency}}{\text{Latency}} + 0.10 \text{Overhead Score} \right]
 $$
 
-| 모델 | Makespan (일) | 지연 블록 (개) | 가동률 (%) | 블록당 지연 (ms) | 학습/연산 오버헤드 | MCDA 점수 (10점 만점) | 최종 권장 역할 |
+| 모델 | Makespan (일) | 지연 블록 (개) | 가동률 (%) | 블록당 지연 (ms) | 학습/연산 오버헤드 | MCDA 점수 (10점 만점) | 최종 권장 운영 역할 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **EST Heuristic** | 1,254 | 248 | 28.4% | 0.217 ms | 0초 (Direct Rule) | **10.00** | **초경량 무결점 안전 Fallback (Circuit Breaker)** |
+| **EST Heuristic** | 1,254 | 248 | 28.4% | 0.217 ms | 0초 (Direct Rule) | **10.00** | **실시간 운영 기본 규칙 디스패처 (Production Default)** |
 | **Google OR-Tools** | 1,254 | 248 | 28.4% | 19.722 ms | 0초 (Direct Solve, 17.2s) | **8.52** | **정기 마스터 플래너 (일간/주간 야간 배치)** |
-| **Action-Masked PPO** | 1,371 | 602 | 26.0% | 0.743 ms | 24.6초 (RL Train) | **6.94** | **실시간 지능형 AI 디스패처 (돌발 이벤트 추천)** |
+| **Action-Masked PPO** | 1,371 | 602 | 26.0% | 0.743 ms | 24.6초 (RL Train) | **6.94** | **정책 개선 검증용 AI Shadow Mode (연구/후속 증강 과제)** |
 | **Action-Masked DQN** | 5,827 | 835 | 6.1% | 16.281 ms | 610.4초 (DQN Train) | **2.14** | 이산 가치 기반 비교 Baseline |
 
-### 3중 하이브리드 운영 전략
-1. **야간 정기 배치**: Google OR-Tools CP-SAT이 872개 전체 마스터 스케줄을 일괄 확정합니다.
-2. **주간 실시간 운영**: 긴급 블록 유입 시 Action-Masked PPO가 1.86ms 만에 빈 정반 슬롯을 즉시 추천합니다.
-3. **장애 안전망**: AI 서빙 다운타임이나 이상치 발생 시 EST Heuristic이 0.14ms 만에 즉각 대체하여 공장 가동 중단을 방지합니다.
+### 하이브리드 운영 전략
+1. **야간 정기 마스터 플래닝**: Google OR-Tools CP-SAT이 872개 전체 마스터 스케줄을 일괄 수립합니다.
+2. **주간 실시간 긴급 운영**: 긴급 블록 유입 시 **EST Heuristic이 0.14ms/block의 초고속 속도로 실시간 메인 디스패칭**을 담당합니다.
+3. **AI 정책 검증 (Shadow Mode)**: Action-Masked PPO 모델은 백그라운드 Shadow Mode로 동시 추론 결과를 로깅하며, 향후 돌발 이벤트 증강 학습을 통해 EST 대비 품질 검증 완료 후 단계적 승격을 검토합니다.
 
 ---
 
