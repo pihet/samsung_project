@@ -1,7 +1,7 @@
 # tests/test_simulator.py
 """
 ================================================================================
-Unit Tests for Shipyard Platen Simulator (Toy 3 Platens x 5 Blocks)
+Unit Tests for Shipyard Platen Simulator (Toy 3 Platens x 5 Blocks + 1 Infeasible)
 ================================================================================
 """
 
@@ -27,13 +27,14 @@ class TestShipyardSimulator(unittest.TestCase):
             {"seq_id": 2, "platen_id": "P_LARGE", "platen_name": "Large Platen", "platen_length_m": 35.0, "platen_width_m": 25.0, "platen_area_m2": 875.0, "crane_capacity_ton": 250.0, "primary_area": "Yard-C"}
         ])
 
-        # 5 Blocks
+        # 6 Blocks (including 1 globally infeasible block)
         self.df_blocks = pd.DataFrame([
             {"seq_id": 0, "block_id": "B0", "ship_id": "S1", "length_m": 10.0, "width_m": 10.0, "weight_ton": 50.0, "lead_time_days": 10, "earliest_start_date": "2018-02-24", "due_date": "2018-03-26", "est_day": 0, "due_day": 30, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 0},
             {"seq_id": 1, "block_id": "B1", "ship_id": "S1", "length_m": 20.0, "width_m": 15.0, "weight_ton": 120.0, "lead_time_days": 15, "earliest_start_date": "2018-03-01", "due_date": "2018-04-10", "est_day": 5, "due_day": 45, "slack_days": 25, "urgency_ratio": 0.375, "block_type": "FLAT", "cluster_id": 1},
             {"seq_id": 2, "block_id": "B2", "ship_id": "S1", "length_m": 18.0, "width_m": 18.0, "weight_ton": 220.0, "lead_time_days": 20, "earliest_start_date": "2018-02-24", "due_date": "2018-04-15", "est_day": 0, "due_day": 50, "slack_days": 30, "urgency_ratio": 0.40, "block_type": "FLAT", "cluster_id": 2},
             {"seq_id": 3, "block_id": "B3", "ship_id": "S1", "length_m": 22.0, "width_m": 12.0, "weight_ton": 80.0, "lead_time_days": 10, "earliest_start_date": "2018-03-06", "due_date": "2018-04-05", "est_day": 10, "due_day": 40, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 3},
-            {"seq_id": 4, "block_id": "B4", "ship_id": "S1", "length_m": 40.0, "width_m": 30.0, "weight_ton": 300.0, "lead_time_days": 30, "earliest_start_date": "2018-02-24", "due_date": "2018-05-25", "est_day": 0, "due_day": 90, "slack_days": 60, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 2}
+            {"seq_id": 4, "block_id": "B4", "ship_id": "S1", "length_m": 40.0, "width_m": 30.0, "weight_ton": 300.0, "lead_time_days": 30, "earliest_start_date": "2018-02-24", "due_date": "2018-05-25", "est_day": 0, "due_day": 90, "slack_days": 60, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 2},
+            {"seq_id": 5, "block_id": "B_OVERSIZED", "ship_id": "S1", "length_m": 50.0, "width_m": 40.0, "weight_ton": 500.0, "lead_time_days": 30, "earliest_start_date": "2018-02-24", "due_date": "2018-05-25", "est_day": 0, "due_day": 90, "slack_days": 60, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 2}
         ])
 
         self.toy_blocks_file = "/tmp/toy_blocks.csv"
@@ -41,7 +42,6 @@ class TestShipyardSimulator(unittest.TestCase):
         self.df_blocks.to_csv(self.toy_blocks_file, index=False)
         self.df_platens.to_csv(self.toy_platens_file, index=False)
 
-        # Initialize simulator with raw order for deterministic unit testing
         self.sim = ShipyardPlatenSimulator(self.toy_blocks_file, self.toy_platens_file, order_by="raw")
 
     def test_spatial_constraint(self):
@@ -70,13 +70,11 @@ class TestShipyardSimulator(unittest.TestCase):
     def test_sequential_non_overlapping_schedule(self):
         """Test that placing B0 then B1 on the same platen updates available day strictly without overlap."""
         self.sim.reset()
-        # Allocate B0 (duration 10, EST 0) to P_LARGE
         res_0 = self.sim.step(2)
         self.assertEqual(res_0["planned_start_day"], 0)
         self.assertEqual(res_0["planned_end_day"], 10)
         self.assertEqual(self.sim.platen_available_days[2], 10)
 
-        # Allocate B1 (duration 15, EST 5) to P_LARGE (platen free at 10)
         res_1 = self.sim.step(2)
         self.assertEqual(res_1["planned_start_day"], 10, "B1 start must wait until P_LARGE is free at day 10")
         self.assertEqual(res_1["planned_end_day"], 25)
@@ -85,27 +83,34 @@ class TestShipyardSimulator(unittest.TestCase):
     def test_invalid_action_safe_fallback_and_penalty(self):
         """Test that passing an invalid action (e.g. B1 to P_SMALL) safely falls back to a feasible platen with penalty."""
         self.sim.reset()
-        # B0: Allocate to P_SMALL (valid)
-        self.sim.step(0)
+        self.sim.step(0) # B0 valid on P0
+        res_invalid = self.sim.step(0) # B1 invalid on P0 -> fallback to P1/P2
         
-        # B1: Try allocating to P_SMALL (invalid - spatial limit exceeded)
-        res_invalid = self.sim.step(0)
-        
-        # Requested action was invalid
-        self.assertFalse(res_invalid["requested_feasible"], "Requested action should be flagged as infeasible")
-        # Actual allocated platen must be feasible (P_MED or P_LARGE)
-        self.assertIn(res_invalid["platen_idx"], [1, 2], "Actual allocated platen must be a safe feasible fallback")
-        self.assertTrue(res_invalid["is_feasible"], "Recorded schedule must be 100% feasible")
-        # Large penalty was applied
-        self.assertLess(res_invalid["reward"], -400.0, "Heavy penalty must be applied for invalid action")
+        self.assertFalse(res_invalid["requested_feasible"])
+        self.assertIn(res_invalid["platen_idx"], [1, 2])
+        self.assertTrue(res_invalid["is_feasible"])
+        self.assertLess(res_invalid["reward"], -400.0)
+
+    def test_globally_infeasible_block_rejection(self):
+        """Test that a block impossible for all platens is explicitly rejected as INFEASIBLE_REJECTED."""
+        self.sim.reset()
+        # Step through B0..B4
+        for _ in range(5):
+            self.sim.step(2)
+            
+        # Step B_OVERSIZED (index 5)
+        res_over = self.sim.step(2)
+        self.assertFalse(res_over["is_feasible"], "Globally oversized block must be marked is_feasible=False")
+        self.assertEqual(res_over["status"], "INFEASIBLE_REJECTED")
+        self.assertEqual(res_over["platen_idx"], -1)
+        self.assertEqual(res_over["planned_start_day"], -1)
 
     def test_state_dimension_and_cluster_feature(self):
         """Test that state vector includes cluster feature and matches 10 + 3*num_platens dimension."""
         self.sim.reset()
         state = self.sim._get_state()
-        expected_dim = 10 + 3 * len(self.df_platens) # 10 + 3*3 = 19
-        self.assertEqual(len(state), expected_dim, f"State dimension should be {expected_dim}")
-        # B0 has cluster_id=0 -> feature should be 0.0
+        expected_dim = 10 + 3 * len(self.df_platens)
+        self.assertEqual(len(state), expected_dim)
         self.assertEqual(state[9], 0.0)
 
 if __name__ == "__main__":

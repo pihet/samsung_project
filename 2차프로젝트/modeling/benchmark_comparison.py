@@ -3,6 +3,7 @@
 ================================================================================
 Comprehensive Benchmark Comparison & Performance Visualization
 ================================================================================
+- Dynamically loads measured execution times from benchmark_metrics.json artifact.
 - Distinct Categories:
   1. Unified Sequential Simulator (1-Block Non-overlapping, 100% Feasible)
   2. Historical Research Paper Baselines (Figure 10 & 3,000-episode logs reference)
@@ -11,6 +12,7 @@ Comprehensive Benchmark Comparison & Performance Visualization
 
 import os
 import sys
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -21,6 +23,8 @@ sys.path.append(base_dir)
 
 from modeling.eval_metrics import SafeScheduleReader, MetricEvaluator
 
+METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+
 def generate_benchmark_report():
     data_dir = os.path.join(base_dir, "data/standardized")
     processed_dir = os.path.join(base_dir, "data/processed")
@@ -30,72 +34,81 @@ def generate_benchmark_report():
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-    # 1. Target algorithms to evaluate
+    # Load recorded execution times from artifact
+    metrics_store = {}
+    if os.path.exists(METRICS_JSON):
+        try:
+            with open(METRICS_JSON, "r", encoding="utf-8") as f:
+                metrics_store = json.load(f)
+        except Exception:
+            metrics_store = {}
+
+    # Target algorithms registry
     algorithm_registry = [
         # Unified Simulator Algorithms
         {
             "name": "Google OR-Tools CP-SAT (Ours)",
+            "key": "ortools",
             "file": os.path.join(processed_dir, "ortools_scheduling_results.csv"),
             "category": "Unified Simulator",
             "type": "Mathematical Optimization",
-            "compute_time": "18.76s (Measured)"
         },
         {
             "name": "EST Heuristic (Unified Sim)",
+            "key": "heuristic_est",
             "file": os.path.join(processed_dir, "heuristic_est_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-            "compute_time": "0.15s (Measured)"
         },
         {
             "name": "LPT Heuristic (Unified Sim)",
+            "key": "heuristic_lpt",
             "file": os.path.join(processed_dir, "heuristic_lpt_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-            "compute_time": "0.15s (Measured)"
         },
         {
             "name": "SPT Heuristic (Unified Sim)",
+            "key": "heuristic_spt",
             "file": os.path.join(processed_dir, "heuristic_spt_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-            "compute_time": "0.15s (Measured)"
         },
         {
             "name": "RTB Heuristic (Unified Sim)",
+            "key": "heuristic_rtb",
             "file": os.path.join(processed_dir, "heuristic_rtb_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-            "compute_time": "0.15s (Measured)"
         },
         {
             "name": "RUB Heuristic (Unified Sim)",
+            "key": "heuristic_rub",
             "file": os.path.join(processed_dir, "heuristic_rub_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
-            "compute_time": "0.15s (Measured)"
         },
         {
             "name": "PPO Actor-Critic (Ours)",
+            "key": "ppo",
             "file": os.path.join(processed_dir, "ppo_scheduling_results.csv"),
             "category": "Unified Simulator",
             "type": "Deep Reinforcement Learning",
-            "compute_time": "0.05s (Measured)"
         },
         # Research Paper Historical Reference Baselines
         {
             "name": "EDDQN (Paper Baseline)",
+            "key": "paper_eddqn",
             "file": os.path.join(data_dir, "eddqn_scheduling_results.csv"),
             "category": "Paper Baseline (2D)",
             "type": "Research Paper Baseline",
-            "compute_time": "Historical Ref (3000 eps)"
         },
         {
             "name": "DDQN (Paper Baseline)",
+            "key": "paper_ddqn",
             "file": os.path.join(data_dir, "ddqn_scheduling_results.csv"),
             "category": "Paper Baseline (2D)",
             "type": "Research Paper Baseline",
-            "compute_time": "Historical Ref (3000 eps)"
         }
     ]
 
@@ -114,6 +127,16 @@ def generate_benchmark_report():
             is_paper = (item["category"] == "Paper Baseline (2D)")
             metrics = evaluator.evaluate(df_sched, item["name"], is_paper_baseline=is_paper)
             
+            # Resolve measured execution time from artifact
+            key = item.get("key", "")
+            if is_paper:
+                compute_time_str = "Historical Ref (3000 eps)"
+            elif key in metrics_store and "compute_time_sec" in metrics_store[key]:
+                sec = float(metrics_store[key]["compute_time_sec"])
+                compute_time_str = f"{sec:.2f}s (Measured)"
+            else:
+                compute_time_str = "N/A (Run to measure)"
+
             valid_results.append({
                 "Algorithm": item["name"],
                 "Category": item["category"],
@@ -124,8 +147,8 @@ def generate_benchmark_report():
                 "Platen Util (%)": f"{metrics['utilization_pct']}%",
                 "Violations": metrics["violations"]["total"],
                 "100% Feasible": "YES" if metrics["is_100pct_feasible"] else "NO",
-                "Integrity": "PASS" if metrics["integrity"]["passed"] else "WARN",
-                "Compute Time": item["compute_time"]
+                "Integrity": "PASS" if metrics["integrity"]["passed"] else "FAIL",
+                "Compute Time": compute_time_str
             })
         except Exception as e:
             print(f"[Error] Failed to evaluate '{item['name']}': {e}")
@@ -152,39 +175,39 @@ def generate_benchmark_report():
     print("=" * 115)
 
     # 3. Generate Publication-Grade Comparison Chart
-    plt.figure(figsize=(12, 6))
-    
-    # Sort all by Makespan ascending for plot
-    df_plot = df_report.sort_values(by="Makespan (Days)", ascending=False).reset_index(drop=True)
-    
-    colors = []
-    for cat in df_plot["Category"]:
-        if cat == "Unified Simulator":
-            colors.append("#10b981") # Green
-        else:
-            colors.append("#64748b") # Slate Gray
-            
-    bars = plt.barh(df_plot["Algorithm"], df_plot["Makespan (Days)"], color=colors, height=0.6)
-    plt.xlabel("Makespan (Days, Lower is Better)", fontsize=11, fontweight="bold")
-    plt.title(f"Shipyard Platen Scheduling Benchmark ({total_evaluated} Evaluated Algorithms)", fontsize=13, fontweight="bold")
-    plt.grid(axis="x", linestyle="--", alpha=0.5)
+    try:
+        plt.figure(figsize=(12, 6))
+        df_plot = df_report.sort_values(by="Makespan (Days)", ascending=False).reset_index(drop=True)
+        
+        colors = []
+        for cat in df_plot["Category"]:
+            if cat == "Unified Simulator":
+                colors.append("#10b981") # Emerald Green
+            else:
+                colors.append("#64748b") # Slate Gray
+                
+        bars = plt.barh(df_plot["Algorithm"], df_plot["Makespan (Days)"], color=colors, height=0.6)
+        plt.xlabel("Makespan (Days, Lower is Better)", fontsize=11, fontweight="bold")
+        plt.title(f"Shipyard Platen Scheduling Benchmark ({total_evaluated} Evaluated Algorithms)", fontsize=13, fontweight="bold")
+        plt.grid(axis="x", linestyle="--", alpha=0.5)
 
-    for bar in bars:
-        width = bar.get_width()
-        plt.text(width + 25, bar.get_y() + bar.get_height()/2, f"{int(width)}d", va="center", ha="left", fontsize=10, fontweight="bold")
+        for bar in bars:
+            width = bar.get_width()
+            plt.text(width + 25, bar.get_y() + bar.get_height()/2, f"{int(width)}d", va="center", ha="left", fontsize=10, fontweight="bold")
 
-    # Legend
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor="#10b981", label="Unified Simulator (Ours / Heuristics)"),
-        Patch(facecolor="#64748b", label="Paper Baseline (Figure 10 2D Ref)")
-    ]
-    plt.legend(handles=legend_elements, loc="lower right", frameon=True)
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor="#10b981", label="Unified Simulator (Ours / Heuristics)"),
+            Patch(facecolor="#64748b", label="Paper Baseline (Figure 10 2D Ref)")
+        ]
+        plt.legend(handles=legend_elements, loc="lower right", frameon=True)
 
-    plt.tight_layout()
-    chart_path = os.path.join(processed_dir, "algorithm_benchmark_comparison.png")
-    plt.savefig(chart_path, dpi=300)
-    print(f"\nSaved updated benchmark chart to: {chart_path}")
+        plt.tight_layout()
+        chart_path = os.path.join(processed_dir, "algorithm_benchmark_comparison.png")
+        plt.savefig(chart_path, dpi=300)
+        print(f"\nSaved updated benchmark chart to: {chart_path}")
+    except Exception as e:
+        print(f"\n[Notice] Chart plotting skipped: {e}")
 
     return df_report
 

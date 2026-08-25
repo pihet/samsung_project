@@ -3,22 +3,23 @@
 ================================================================================
 Unified Metric Evaluator & Data Integrity Audit Engine
 ================================================================================
-- Data Integrity Checks:
-  1. Row Count & Completeness: Exactly 872 blocks present.
-  2. Primary Key Uniqueness: seq_id (0..871) has 0 duplicates and 0 omissions.
-  3. Valid Intervals: planned_end_day > planned_start_day.
-  4. Known Platen IDs: All platen assignments exist in the official 66-platen master list.
+- Data Integrity Audit Requirements:
+  1. Exact Set Match: set(actual_seq_id) == set(expected_seq_id) (0 missing, 0 unexpected).
+  2. Duplicate Check: exactly 872 rows with 0 duplicate sequence IDs.
+  3. Valid Intervals: planned_end_day > planned_start_day for all allocated blocks.
+  4. Known Platens: all assigned platen_id values exist in the 66-platen master list.
+  (All 4 conditions are strictly required for Integrity: PASS).
 
 - 4 Physical Constraint Checks:
-  1. Spatial Feasibility (allows 90-degree planar rotation).
+  1. Spatial Feasibility (with 90-deg planar rotation).
   2. Crane Capacity Feasibility (block weight <= platen crane limit).
   3. EST Precedence (planned_start >= earliest_start_date; release date constraint).
   4. Single-Occupancy Non-overlapping (one block per platen at any given time).
 
-- Research Paper vs Unified Simulator Disclaimers:
-  Historical paper baseline files (EDDQN, paper heuristics) originally utilized multi-block
-  2D coordinate packing in the paper's experiments. They are evaluated here for direct
-  historical metric reference (Makespan, Delay) alongside the unified sequential simulator.
+- Paper vs Unified Simulator Disclaimers:
+  Historical paper baseline files (EDDQN, DDQN, EST) originally utilized multi-block
+  2D coordinate packing in the paper's experiments. They are audited here for direct
+  historical metric reference (Figure 10) alongside the unified sequential simulator.
 ================================================================================
 """
 
@@ -96,6 +97,7 @@ class MetricEvaluator:
             self.df_blocks['seq_id'] = np.arange(len(self.df_blocks))
             
         self.expected_num_blocks = len(self.df_blocks)
+        self.expected_seq_set: Set[int] = set(self.df_blocks['seq_id'].astype(int))
         self.num_platens = len(self.df_platens)
         self.valid_platen_ids: Set[str] = set(self.df_platens['platen_id'].astype(str))
         
@@ -124,30 +126,42 @@ class MetricEvaluator:
         self.total_lead_time = float(self.df_blocks['lead_time_days'].sum() if 'lead_time_days' in self.df_blocks.columns else self.df_blocks['processing_time_days'].sum())
 
     def evaluate(self, df_sched: pd.DataFrame, algorithm_name: str = "Unknown", is_paper_baseline: bool = False) -> Dict[str, Any]:
-        """Calculates exact KPI metrics, verifies integrity, and checks 4 physical constraints."""
+        """Calculates exact KPI metrics, verifies exact set integrity, and checks 4 physical constraints."""
         total_rows = len(df_sched)
         
         # --- 1. Data Integrity Audit ---
-        seq_ids = df_sched['seq_id'].tolist() if 'seq_id' in df_sched.columns else list(range(total_rows))
-        unique_seq_ids = set(seq_ids)
-        duplicate_seq_count = total_rows - len(unique_seq_ids)
-        missing_seq_count = max(0, self.expected_num_blocks - len(unique_seq_ids))
+        actual_seq_ids = df_sched['seq_id'].astype(int).tolist() if 'seq_id' in df_sched.columns else list(range(total_rows))
+        actual_seq_set = set(actual_seq_ids)
+        
+        missing_seq_ids = self.expected_seq_set - actual_seq_set
+        unexpected_seq_ids = actual_seq_set - self.expected_seq_set
+        duplicate_seq_count = total_rows - len(actual_seq_set)
         
         invalid_intervals_count = int((df_sched['planned_end_day'] <= df_sched['planned_start_day']).sum())
         
         unknown_platens_count = 0
         if 'platen_id' in df_sched.columns:
             for p_id in df_sched['platen_id']:
-                if str(p_id) not in self.valid_platen_ids and str(p_id) != 'nan':
+                if str(p_id) not in self.valid_platen_ids and str(p_id) not in ['nan', 'NONE', 'None', '']:
                     unknown_platens_count += 1
 
-        integrity_passed = (total_rows == self.expected_num_blocks and 
-                            duplicate_seq_count == 0 and 
-                            missing_seq_count == 0 and 
-                            invalid_intervals_count == 0)
+        integrity_passed = (
+            len(missing_seq_ids) == 0 and 
+            len(unexpected_seq_ids) == 0 and 
+            duplicate_seq_count == 0 and 
+            invalid_intervals_count == 0 and 
+            unknown_platens_count == 0 and 
+            total_rows == self.expected_num_blocks
+        )
 
         # --- 2. Makespan & Delay Metrics ---
-        makespan = int(df_sched['planned_end_day'].max() - df_sched['planned_start_day'].min())
+        # Exclude rejected infeasible blocks from makespan calculation if any
+        df_valid_blocks = df_sched[df_sched['planned_start_day'] >= 0] if 'planned_start_day' in df_sched.columns else df_sched
+        if len(df_valid_blocks) > 0:
+            makespan = int(df_valid_blocks['planned_end_day'].max() - df_valid_blocks['planned_start_day'].min())
+        else:
+            makespan = 0
+
         delayed_mask = df_sched['delay_days'] > 0
         delayed_count = int(delayed_mask.sum())
         delayed_pct = round((delayed_count / max(1, total_rows)) * 100, 2)
@@ -155,7 +169,7 @@ class MetricEvaluator:
         avg_delay_all = round(total_delay / max(1, total_rows), 2)
         avg_delay_delayed = round(total_delay / max(1, delayed_count), 2) if delayed_count > 0 else 0.0
         
-        utilization_pct = round((self.total_lead_time / max(1, (self.num_platens * makespan))) * 100, 2)
+        utilization_pct = round((self.total_lead_time / max(1, (self.num_platens * makespan))) * 100, 2) if makespan > 0 else 0.0
 
         # --- 3. 4 Physical Constraint Checks ---
         spatial_violations = 0
@@ -170,6 +184,10 @@ class MetricEvaluator:
             p_id = str(row.get('platen_id', ''))
             start_d = int(row['planned_start_day'])
             end_d = int(row['planned_end_day'])
+
+            # Skip rejected blocks
+            if start_d < 0 or end_d < 0 or p_id in ['NONE', 'None', 'nan', '']:
+                continue
 
             # EST check
             if s_id in self.block_dict:
@@ -209,8 +227,9 @@ class MetricEvaluator:
             "total_blocks": total_rows,
             "integrity": {
                 "passed": integrity_passed,
+                "missing_seq_ids_count": len(missing_seq_ids),
+                "unexpected_seq_ids_count": len(unexpected_seq_ids),
                 "duplicate_seq_ids": duplicate_seq_count,
-                "missing_seq_ids": missing_seq_count,
                 "invalid_intervals": invalid_intervals_count,
                 "unknown_platens": unknown_platens_count
             },
@@ -243,11 +262,10 @@ if __name__ == "__main__":
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
     print("=" * 105)
-    print("UNIFIED EVALUATION & DATA INTEGRITY AUDIT REPORT")
+    print("UNIFIED EVALUATION & STRICT DATA INTEGRITY AUDIT REPORT")
     print("=" * 105)
 
     files = [
-        # (Name, Path, Is Paper Baseline)
         ("Google OR-Tools CP-SAT (Ours)", os.path.join(processed_dir, "ortools_scheduling_results.csv"), False),
         ("EST Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_est_results.csv"), False),
         ("LPT Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_lpt_results.csv"), False),
@@ -269,7 +287,7 @@ if __name__ == "__main__":
                     "Algorithm": name,
                     "Category": "Paper Baseline (2D)" if is_paper else "Unified Simulator (Sequential)",
                     "Blocks": metrics["total_blocks"],
-                    "Integrity": "PASS" if metrics["integrity"]["passed"] else "WARN",
+                    "Integrity": "PASS" if metrics["integrity"]["passed"] else "FAIL",
                     "Makespan (d)": metrics["makespan_days"],
                     "Delayed (%)": f"{metrics['delayed_blocks_pct']}%",
                     "Avg Delay (d)": metrics["avg_delay_days_all"],

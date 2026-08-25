@@ -4,7 +4,7 @@
 Shipyard Platen Discrete Event Simulator Engine
 ================================================================================
 - Modeled Constraints (Explicit Definitions):
-  1. Spatial Feasibility (with 90-deg rotation):
+  1. Spatial Feasibility (with 90-deg planar rotation):
      max(block_length, block_width) <= max(platen_length, platen_width) and
      min(block_length, block_width) <= min(platen_length, platen_width)
   2. Crane Capacity Feasibility:
@@ -16,12 +16,16 @@ Shipyard Platen Discrete Event Simulator Engine
   4. Platen Non-overlapping (Single-Occupancy Interval):
      Each platen processes one block at a time sequentially [planned_start, planned_end).
      (Note: Multi-block 2D coordinate sub-packing within a platen is not modeled).
+  5. Initial Platen Status (2017-11-16 vs 2018-02-24):
+     Initial platen occupancy from initial_platen_status.csv ended on 2017-11-16 (Day 43055),
+     which is 100 days prior to the first block arrival on 2018-02-24 (Day 43155).
+     Thus all 66 platens start fully available (day 0) at simulation launch.
 
-- Hard Constraint Handling:
-  If an invalid platen (violating spatial/crane limits) is chosen:
-  - Agent receives a heavy penalty (-500.0 reward).
-  - Simulator automatically falls back to a guaranteed feasible platen for the schedule,
-    ensuring 0 constraint violations in recorded output history.
+- Hard Constraint & Infeasibility Handling:
+  - If a block has NO feasible platens across the entire shipyard:
+    The block is explicitly recorded as INFEASIBLE_REJECTED with is_feasible=False.
+  - If a block has feasible platens but an invalid action is chosen:
+    Agent receives a heavy penalty (-500.0) and simulator falls back to a valid platen.
 ================================================================================
 """
 
@@ -36,12 +40,14 @@ class ShipyardPlatenSimulator:
         self, 
         blocks_source: Union[str, pd.DataFrame] = None, 
         platens_source: Union[str, pd.DataFrame] = None,
+        initial_status_source: Union[str, pd.DataFrame] = None,
         reward_version: str = "V2",
         order_by: str = "est_urgency"  # 'est_urgency' or 'raw'
     ):
         cur_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = os.path.dirname(cur_dir)
         default_processed_dir = os.path.join(base_dir, "data/processed")
+        default_standardized_dir = os.path.join(base_dir, "data/standardized")
 
         # 1. Load Blocks
         if blocks_source is None:
@@ -64,6 +70,18 @@ class ShipyardPlatenSimulator:
             self.df_platens = pd.read_csv(os.path.join(platens_source, "featured_platens.csv"))
         else:
             self.df_platens = pd.read_csv(platens_source)
+
+        # 3. Load Initial Platen Status (Optional)
+        self.df_initial_status = None
+        if initial_status_source is not None:
+            if isinstance(initial_status_source, pd.DataFrame):
+                self.df_initial_status = initial_status_source.copy()
+            elif os.path.exists(initial_status_source):
+                self.df_initial_status = pd.read_csv(initial_status_source)
+        else:
+            std_init = os.path.join(default_standardized_dir, "initial_platen_status.csv")
+            if os.path.exists(std_init):
+                self.df_initial_status = pd.read_csv(std_init)
 
         self.reward_version = reward_version
         self.order_by = order_by
@@ -94,6 +112,8 @@ class ShipyardPlatenSimulator:
                 self.base_date = self.df_blocks['est_dt'].min()
                 self.df_blocks['est_day'] = (self.df_blocks['est_dt'] - self.base_date).dt.days
                 self.df_blocks['due_day'] = (self.df_blocks['due_dt'] - self.base_date).dt.days
+            else:
+                self.base_date = pd.to_datetime("2018-02-24")
 
         # Ensure lead_time_days
         if 'lead_time_days' not in self.df_blocks.columns:
@@ -105,7 +125,22 @@ class ShipyardPlatenSimulator:
         self.total_reward = 0.0
         self.step_count = 0
         self.platen_schedules: Dict[int, List[Dict[str, Any]]] = {i: [] for i in range(self.num_platens)}
+        
+        # Initial availability calculation from initial_platen_status.csv
         self.platen_available_days = np.zeros(self.num_platens, dtype=int)
+        if self.df_initial_status is not None and 'expected_end_day_serial' in self.df_initial_status.columns:
+            # Base date 2018-02-24 is Excel serial 43155
+            base_serial = 43155
+            for _, row in self.df_initial_status.iterrows():
+                p_name = str(row.get('platen_name', ''))
+                end_serial = int(row['expected_end_day_serial'])
+                # Find matching platen
+                p_matches = self.df_platens[self.df_platens['platen_name'] == p_name]
+                if len(p_matches) > 0:
+                    p_idx = int(p_matches.index[0])
+                    init_avail = max(0, end_serial - base_serial)
+                    self.platen_available_days[p_idx] = max(self.platen_available_days[p_idx], init_avail)
+
         self.allocation_history: List[Dict[str, Any]] = []
         return self._get_state()
 
@@ -141,7 +176,7 @@ class ShipyardPlatenSimulator:
         return True, "FEASIBLE"
 
     def get_action_mask(self, block_idx: Optional[int] = None) -> np.ndarray:
-        """Returns boolean mask of valid platens for the current block."""
+        """Returns boolean mask of valid platens. If block is impossible, returns all False."""
         if block_idx is None:
             block_idx = self.current_block_idx
         if block_idx >= self.num_blocks:
@@ -152,22 +187,18 @@ class ShipyardPlatenSimulator:
             feas, _ = self.check_feasibility(block_idx, p)
             if feas:
                 mask[p] = True
-        if not np.any(mask):
-            # Fallback to largest capacity platen
-            mask[-1] = True
         return mask
 
-    def find_safe_fallback_platen(self, block_idx: int) -> int:
-        """Finds the best feasible platen with earliest availability when an invalid action is provided."""
+    def find_safe_fallback_platen(self, block_idx: int) -> Optional[int]:
+        """Finds earliest available feasible platen, or None if physically impossible across all platens."""
         mask = self.get_action_mask(block_idx)
         valid_platens = np.where(mask)[0]
         if len(valid_platens) == 0:
-            return self.num_platens - 1
+            return None
 
         b = self.df_blocks.iloc[block_idx]
         est_d = int(b.get('est_day', 0))
 
-        # Select feasible platen with earliest available start
         best_p = valid_platens[0]
         best_start = max(est_d, int(self.platen_available_days[best_p]))
         for p in valid_platens:
@@ -184,11 +215,42 @@ class ShipyardPlatenSimulator:
         b = self.df_blocks.iloc[self.current_block_idx]
         is_requested_feasible, reason = self.check_feasibility(self.current_block_idx, action_platen_idx)
 
-        # Hard constraint enforcement: if requested action is infeasible, fallback to safe feasible platen
+        # Check overall block feasibility across all platens
+        mask = self.get_action_mask(self.current_block_idx)
+        valid_platens = np.where(mask)[0]
+
+        if len(valid_platens) == 0:
+            # Case 1: Block cannot be placed on any platen in the shipyard
+            reward = -1000.0
+            self.total_reward += reward
+            record = {
+                "seq_id": int(b['seq_id']),
+                "block_id": b['block_id'],
+                "ship_id": b['ship_id'],
+                "platen_idx": -1,
+                "platen_id": "NONE",
+                "platen_name": "INFEASIBLE_REJECTED",
+                "planned_start_day": -1,
+                "planned_end_day": -1,
+                "due_day": int(b.get('due_day', 0)),
+                "delay_days": 9999,
+                "lead_time_days": int(b.get('lead_time_days', 0)),
+                "is_feasible": False,
+                "requested_feasible": False,
+                "status": "INFEASIBLE_REJECTED",
+                "reward": round(reward, 2)
+            }
+            self.allocation_history.append(record)
+            self.current_block_idx += 1
+            self.step_count += 1
+            return record
+
         if not is_requested_feasible:
+            # Case 2: Requested platen is invalid, but other feasible platens exist -> Safe fallback with penalty
             actual_platen_idx = self.find_safe_fallback_platen(self.current_block_idx)
             penalty = -500.0
         else:
+            # Case 3: Valid platen requested
             actual_platen_idx = int(action_platen_idx)
             penalty = 0.0
 
@@ -224,8 +286,9 @@ class ShipyardPlatenSimulator:
             "due_day": due_day,
             "delay_days": delay_days,
             "lead_time_days": lead_time,
-            "is_feasible": True, # Guaranteed feasible in saved schedule
+            "is_feasible": True,
             "requested_feasible": is_requested_feasible,
+            "status": "ALLOCATED",
             "reward": round(reward, 2)
         }
 
@@ -311,15 +374,22 @@ class ShipyardPlatenSimulator:
         if not self.allocation_history:
             return {"status": "EMPTY"}
         df_hist = pd.DataFrame(self.allocation_history)
-        makespan = int(df_hist['planned_end_day'].max() - df_hist['planned_start_day'].min())
-        delayed_blocks = int((df_hist['delay_days'] > 0).sum())
-        total_delay = int(df_hist['delay_days'].sum())
-        avg_delay = round(total_delay / max(1, len(df_hist)), 2)
-        total_lead = float(df_hist['lead_time_days'].sum())
+        df_valid = df_hist[df_hist['is_feasible']]
+        
+        if len(df_valid) == 0:
+            return {"status": "ALL_INFEASIBLE", "total_blocks": len(df_hist), "makespan": 0}
+
+        makespan = int(df_valid['planned_end_day'].max() - df_valid['planned_start_day'].min())
+        delayed_blocks = int((df_valid['delay_days'] > 0).sum())
+        total_delay = int(df_valid['delay_days'].sum())
+        avg_delay = round(total_delay / max(1, len(df_valid)), 2)
+        total_lead = float(df_valid['lead_time_days'].sum())
         utilization = round((total_lead / max(1, (self.num_platens * makespan))) * 100, 2)
 
         return {
             "total_blocks": len(df_hist),
+            "feasible_blocks": len(df_valid),
+            "infeasible_blocks": len(df_hist) - len(df_valid),
             "makespan": makespan,
             "delayed_blocks": delayed_blocks,
             "total_delay_days": total_delay,

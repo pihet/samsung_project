@@ -1,0 +1,44 @@
+{
+  "heuristic_est": {
+    "algorithm": "EST Heuristic (Unified Sim)",
+    "compute_time_sec": 12.2849,
+    "makespan_days": 1254,
+    "delayed_blocks": 248,
+    "timestamp": 1787633430.1264963
+  },
+  "heuristic_spt": {
+    "algorithm": "SPT Heuristic (Unified Sim)",
+    "compute_time_sec": 10.3153,
+    "makespan_days": 1474,
+    "delayed_blocks": 528,
+    "timestamp": 1787633440.484861
+  },
+  "heuristic_lpt": {
+    "algorithm": "LPT Heuristic (Unified Sim)",
+    "compute_time_sec": 9.9964,
+    "makespan_days": 1438,
+    "delayed_blocks": 623,
+    "timestamp": 1787633450.540559
+  },
+  "heuristic_rub": {
+    "algorithm": "RUB Heuristic (Unified Sim)",
+    "compute_time_sec": 10.8965,
+    "makespan_days": 1969,
+    "delayed_blocks": 734,
+    "timestamp": 1787633461.662611
+  },
+  "heuristic_rtb": {
+    "algorithm": "RTB Heuristic (Unified Sim)",
+    "compute_time_sec": 9.6823,
+    "makespan_days": 1560,
+    "delayed_blocks": 677,
+    "timestamp": 1787633471.3918226
+  },
+  "ortools": {
+    "algorithm": "Google OR-Tools CP-SAT (Ours)",
+    "compute_time_sec": 18.92,
+    "makespan_days": 1210,
+    "delayed_blocks": 246,
+    "timestamp": 1787633502.7200387
+  }
+}
