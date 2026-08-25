@@ -1,0 +1,26 @@
+[
+  {
+    "Methodology": "Action-Masked PPO RL (Ours)",
+    "Role": "Real-time AI Dispatcher",
+    "5-Block Total Decision Time": "213.79 ms",
+    "Per-Block Decision Latency": "42.759 ms",
+    "Delayed Rush Blocks": 1,
+    "100% Feasible": true
+  },
+  {
+    "Methodology": "EST Heuristic Rule",
+    "Role": "Rule-based Fallback",
+    "5-Block Total Decision Time": "150.26 ms",
+    "Per-Block Decision Latency": "30.052 ms",
+    "Delayed Rush Blocks": 0,
+    "100% Feasible": true
+  },
+  {
+    "Methodology": "Google OR-Tools CP-SAT",
+    "Role": "Master Production Optimizer",
+    "5-Block Total Decision Time": "1050.21 ms (1.05s)",
+    "Per-Block Decision Latency": "210.04 ms",
+    "Delayed Rush Blocks": 0,
+    "100% Feasible": true
+  }
+]

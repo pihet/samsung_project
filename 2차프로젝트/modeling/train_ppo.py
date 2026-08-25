@@ -3,8 +3,11 @@
 ================================================================================
 Action-Masked Proximal Policy Optimization (PPO) for Shipyard Platen Scheduling
 ================================================================================
-- Measures exact inference and training times using time.perf_counter() and logs to benchmark_metrics.json.
-- Guarantees 100% physical feasibility using action masking and safe simulator.
+- Features:
+  * Fixed 208-dim state input
+  * Single-variable Ablation Support (feature_version V1/V2, reward_version V1/V2/V3)
+  * Seed protocol (42, 100, 2024) and time.perf_counter() measurement
+  * Output CSV & benchmark_metrics.json integration
 ================================================================================
 """
 
@@ -12,6 +15,7 @@ import os
 import sys
 import time
 import json
+import random
 from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
@@ -19,18 +23,23 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
-import gymnasium as gym
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
-from simulation.simulator import ShipyardPlatenSimulator
 from simulation.gym_env import ShipyardPlatenGymEnv
 from modeling.eval_metrics import MetricEvaluator
 
 METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+
+def set_global_seeds(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 def update_metrics_json(algo_key: str, data: Dict[str, Any]):
     os.makedirs(os.path.dirname(METRICS_JSON), exist_ok=True)
@@ -83,13 +92,9 @@ class MaskedActorCritic(nn.Module):
         action = dist.sample()
         return action.item(), dist.log_prob(action), dist.entropy(), value.squeeze(-1)
 
-    def get_eval_action(self, state: torch.Tensor, mask: torch.Tensor, temperature: float = 0.5) -> int:
+    def get_greedy_action(self, state: torch.Tensor, mask: torch.Tensor) -> int:
         logits, _ = self.forward(state)
         masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
-        if temperature > 0:
-            probs = torch.softmax(masked_logits / temperature, dim=-1)
-            dist = Categorical(probs=probs)
-            return dist.sample().item()
         return torch.argmax(masked_logits).item()
 
 class PPOTrainer:
@@ -101,16 +106,21 @@ class PPOTrainer:
         clip_ratio: float = 0.2,
         value_coef: float = 0.5,
         entropy_coef: float = 0.01,
-        reward_version: str = "V2"
+        feature_version: str = "V2",
+        reward_version: str = "V2",
+        seed: int = 42
     ):
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         self.clip_ratio = clip_ratio
         self.value_coef = value_coef
         self.entropy_coef = entropy_coef
+        self.feature_version = feature_version
         self.reward_version = reward_version
+        self.seed = seed
+        set_global_seeds(self.seed)
 
-        self.env = ShipyardPlatenGymEnv(reward_version=self.reward_version)
+        self.env = ShipyardPlatenGymEnv(feature_version=self.feature_version, reward_version=self.reward_version)
         self.state_dim = self.env.observation_space.shape[0]
         self.action_dim = self.env.action_space.n
 
@@ -119,7 +129,7 @@ class PPOTrainer:
         self.optimizer = optim.Adam(self.ac_net.parameters(), lr=lr)
 
     def train_episode(self) -> Tuple[float, int, int]:
-        obs, info = self.env.reset()
+        obs, info = self.env.reset(seed=self.seed)
         states, actions, log_probs, rewards, values, masks, dones = [], [], [], [], [], [], []
 
         terminated = False
@@ -188,11 +198,11 @@ class PPOTrainer:
         metrics = self.env.simulator.get_summary_metrics()
         return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
 
-    def evaluate_and_save(self, training_time_sec: float = 0.0) -> Dict[str, Any]:
-        """Inference evaluation using action-masked policy with exact time measurement."""
+    def evaluate_and_save(self, training_time_sec: float = 0.0, save_name: str = "ppo") -> Tuple[Dict[str, Any], float]:
+        """Strict greedy evaluation with exact time measurement."""
         t_eval_start = time.perf_counter()
 
-        obs, info = self.env.reset()
+        obs, info = self.env.reset(seed=self.seed)
         terminated = False
         self.ac_net.eval()
 
@@ -202,7 +212,7 @@ class PPOTrainer:
             mask_t = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
-                action = self.ac_net.get_eval_action(state_t, mask_t, temperature=0.5)
+                action = self.ac_net.get_greedy_action(state_t, mask_t)
 
             next_obs, _, terminated, _, next_info = self.env.step(action)
             obs = next_obs
@@ -211,10 +221,10 @@ class PPOTrainer:
         eval_inference_time = round(time.perf_counter() - t_eval_start, 4)
 
         df_out = pd.DataFrame(self.env.simulator.allocation_history)
-        out_csv = os.path.join(base_dir, "data/processed/ppo_scheduling_results.csv")
+        out_csv = os.path.join(base_dir, f"data/processed/{save_name}_scheduling_results.csv")
         df_out.to_csv(out_csv, index=False)
 
-        model_path = os.path.join(base_dir, "data/processed/ppo_model.pth")
+        model_path = os.path.join(base_dir, f"data/processed/{save_name}_model.pth")
         torch.save(self.ac_net.state_dict(), model_path)
 
         blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
@@ -222,8 +232,11 @@ class PPOTrainer:
         evaluator = MetricEvaluator(blocks_csv, platens_csv)
         eval_res = evaluator.evaluate(df_out, "PPO Actor-Critic (Ours)")
 
-        update_metrics_json("ppo", {
+        update_metrics_json(save_name, {
             "algorithm": "PPO Actor-Critic (Ours)",
+            "feature_version": self.feature_version,
+            "reward_version": self.reward_version,
+            "seed": self.seed,
             "compute_time_sec": eval_inference_time,
             "training_time_sec": round(training_time_sec, 2),
             "makespan_days": eval_res["makespan_days"],
@@ -233,12 +246,12 @@ class PPOTrainer:
 
         return eval_res, eval_inference_time
 
-def train_ppo_pipeline(episodes: int = 30):
+def train_ppo_pipeline(episodes: int = 30, seed: int = 42, feature_version: str = "V2", reward_version: str = "V2"):
     print("=" * 80)
-    print(f"Training Action-Masked PPO for {episodes} Episodes")
+    print(f"Training Action-Masked PPO for {episodes} Episodes (Seed: {seed}, Feat: {feature_version}, Reward: {reward_version})")
     print("=" * 80)
 
-    trainer = PPOTrainer(lr=3e-4, reward_version="V2")
+    trainer = PPOTrainer(lr=3e-4, feature_version=feature_version, reward_version=reward_version, seed=seed)
     t_train_start = time.perf_counter()
 
     for ep in range(1, episodes + 1):
@@ -247,9 +260,9 @@ def train_ppo_pipeline(episodes: int = 30):
             print(f"   [Episode {ep:>3}/{episodes}] Reward: {r:>8.1f} | Makespan: {m:>4}d | Delayed: {d:>3}/872")
 
     training_time = time.perf_counter() - t_train_start
-    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Evaluation...")
+    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Strict Greedy Evaluation...")
 
-    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time)
+    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time, save_name="ppo")
     print("=" * 80)
     print("PPO Actor-Critic Final Evaluation Results")
     print("=" * 80)
@@ -262,6 +275,7 @@ def train_ppo_pipeline(episodes: int = 30):
     print(f"   100% Feasible: {eval_res['is_100pct_feasible']}")
     print(f"   Inference Time: {eval_time:.4f}s (Logged to benchmark_metrics.json)")
     print("=" * 80)
+    return eval_res
 
 if __name__ == "__main__":
-    train_ppo_pipeline(episodes=30)
+    train_ppo_pipeline(episodes=30, seed=42, feature_version="V2", reward_version="V2")

@@ -1,20 +1,26 @@
 # modeling/train_dqn.py
 """
 ================================================================================
- [Modeling] Action-Masked Double DQN (EDDQN) 강화학습 모델 훈련
+Action-Masked Deep Q-Network (DQN) for Shipyard Platen Scheduling
+================================================================================
+- Features:
+  * Fixed 208-dim state input
+  * Action-masked epsilon-greedy exploration & safe target Q estimation
+  * Explicit rejection handling without -1e9 Q-value pollution
+  * Seed protocol (42, 100, 2024) and time.perf_counter() measurement
+  * Output CSV & benchmark_metrics.json integration
 ================================================================================
 """
 
 import os
 import sys
 import time
+import json
 import random
 from collections import deque
-from typing import Dict, Any, List
-
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -25,202 +31,245 @@ sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
 from simulation.gym_env import ShipyardPlatenGymEnv
+from modeling.eval_metrics import MetricEvaluator
+
+METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+
+def set_global_seeds(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+def update_metrics_json(algo_key: str, data: Dict[str, Any]):
+    os.makedirs(os.path.dirname(METRICS_JSON), exist_ok=True)
+    metrics_store = {}
+    if os.path.exists(METRICS_JSON):
+        try:
+            with open(METRICS_JSON, "r", encoding="utf-8") as f:
+                metrics_store = json.load(f)
+        except Exception:
+            metrics_store = {}
+    metrics_store[algo_key] = data
+    with open(METRICS_JSON, "w", encoding="utf-8") as f:
+        json.dump(metrics_store, f, indent=2)
 
 class MaskedQNetwork(nn.Module):
-    def __init__(self, state_dim: int = 208, action_dim: int = 66):
+    def __init__(self, state_dim: int, action_dim: int):
         super(MaskedQNetwork, self).__init__()
         self.net = nn.Sequential(
             nn.Linear(state_dim, 256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Linear(256, 128),
+            nn.LayerNorm(128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, action_dim)
         )
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        q_vals = self.net(x)
-        if mask is not None:
-            q_vals = torch.where(mask, q_vals, torch.tensor(-1e9, device=x.device))
-        return q_vals
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        return self.net(state)
+
+    def get_action(self, state: torch.Tensor, mask: torch.Tensor, epsilon: float = 0.0) -> int:
+        valid_indices = torch.where(mask)[0]
+        if len(valid_indices) == 0:
+            return 0  # Infeasible block
+
+        if random.random() < epsilon:
+            idx = random.choice(valid_indices.tolist())
+            return idx
+        else:
+            q_values = self.forward(state)
+            masked_q = torch.where(mask, q_values, torch.tensor(-1e9, device=state.device))
+            return torch.argmax(masked_q).item()
 
 class ReplayBuffer:
-    def __init__(self, capacity: int = 20000):
+    def __init__(self, capacity: int = 50000):
         self.buffer = deque(maxlen=capacity)
 
     def push(self, state, action, reward, next_state, done, next_mask):
         self.buffer.append((state, action, reward, next_state, done, next_mask))
 
     def sample(self, batch_size: int):
-        states, actions, rewards, next_states, dones, next_masks = zip(*random.sample(self.buffer, batch_size))
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones, next_masks = zip(*batch)
         return (
-            torch.FloatTensor(np.array(states)),
-            torch.LongTensor(actions),
-            torch.FloatTensor(rewards),
-            torch.FloatTensor(np.array(next_states)),
-            torch.FloatTensor(dones),
-            torch.BoolTensor(np.array(next_masks))
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32),
+            np.array(next_masks, dtype=bool)
         )
 
     def __len__(self):
         return len(self.buffer)
 
-def get_action_mask(env: ShipyardPlatenGymEnv) -> np.ndarray:
-    curr_b = env.simulator.current_block_idx
-    if curr_b >= env.simulator.num_blocks:
-        return np.ones(env.num_platens, dtype=bool)
-    mask = np.zeros(env.num_platens, dtype=bool)
-    for p in range(env.num_platens):
-        feas, _ = env.simulator.check_feasibility(curr_b, p)
-        if feas:
-            mask[p] = True
-    if not np.any(mask):
-        mask[0] = True
-    return mask
+class DQNTrainer:
+    def __init__(
+        self,
+        lr: float = 3e-4,
+        gamma: float = 0.99,
+        buffer_capacity: int = 50000,
+        batch_size: int = 64,
+        target_update_freq: int = 5,
+        feature_version: str = "V2",
+        reward_version: str = "V2",
+        seed: int = 42
+    ):
+        self.gamma = gamma
+        self.batch_size = batch_size
+        self.target_update_freq = target_update_freq
+        self.seed = seed
+        set_global_seeds(self.seed)
 
-def train_masked_dqn(num_episodes: int = 25, batch_size: int = 64, lr: float = 1e-3):
-    print("=" * 80)
-    print(" [Action-Masked EDDQN Training] 제약조건 마스킹 기반 Double DQN 학습 시작")
-    print("=" * 80)
+        self.env = ShipyardPlatenGymEnv(feature_version=feature_version, reward_version=reward_version)
+        self.state_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.n
 
-    processed_dir = os.path.join(base_dir, "data/processed")
-    env = ShipyardPlatenGymEnv(reward_version="V2")
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.q_net = MaskedQNetwork(self.state_dim, self.action_dim).to(self.device)
+        self.target_net = MaskedQNetwork(self.state_dim, self.action_dim).to(self.device)
+        self.target_net.load_state_dict(self.q_net.state_dict())
+        self.target_net.eval()
 
-    device = torch.device("cpu")
-    q_net = MaskedQNetwork(state_dim, action_dim).to(device)
-    target_net = MaskedQNetwork(state_dim, action_dim).to(device)
-    target_net.load_state_dict(q_net.state_dict())
-    target_net.eval()
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        self.buffer = ReplayBuffer(capacity=buffer_capacity)
 
-    optimizer = optim.Adam(q_net.parameters(), lr=lr)
-    loss_fn = nn.SmoothL1Loss()
-    memory = ReplayBuffer(capacity=20000)
+    def train_episode(self, epsilon: float) -> Tuple[float, int, int]:
+        obs, info = self.env.reset(seed=self.seed)
+        terminated = False
+        total_loss = 0.0
 
-    epsilon_start = 1.0
-    epsilon_end = 0.05
-    total_steps_decay = num_episodes * 872 * 0.4
+        while not terminated:
+            state_t = torch.FloatTensor(obs).to(self.device)
+            mask_t = torch.BoolTensor(info["action_mask"]).to(self.device)
 
-    history_rewards = []
-    history_makespans = []
-    history_delays = []
+            action = self.q_net.get_action(state_t, mask_t, epsilon=epsilon)
+            next_obs, reward, terminated, _, next_info = self.env.step(action)
 
-    global_step = 0
-    start_time = time.time()
+            self.buffer.push(obs, action, reward, next_obs, terminated, next_info["action_mask"])
 
-    for ep in range(1, num_episodes + 1):
-        obs, _ = env.reset()
-        ep_reward = 0.0
-        done = False
-
-        while not done:
-            global_step += 1
-            mask = get_action_mask(env)
-            valid_actions = np.where(mask)[0]
-
-            epsilon = max(epsilon_end, epsilon_start - (epsilon_start - epsilon_end) * (global_step / max(1, total_steps_decay)))
-
-            if random.random() < epsilon:
-                action = int(np.random.choice(valid_actions))
-            else:
-                with torch.no_grad():
-                    s_tensor = torch.FloatTensor(obs).unsqueeze(0).to(device)
-                    m_tensor = torch.BoolTensor(mask).unsqueeze(0).to(device)
-                    q_values = q_net(s_tensor, m_tensor)
-                    action = q_values.argmax(dim=1).item()
-
-            next_obs, reward, term, trunc, _ = env.step(action)
-            done = term or trunc
-            next_mask = get_action_mask(env)
-
-            memory.push(obs, action, reward, next_obs, float(done), next_mask)
             obs = next_obs
-            ep_reward += reward
+            info = next_info
 
-            if len(memory) >= 500:
-                s_b, a_b, r_b, ns_b, d_b, nm_b = memory.sample(batch_size)
-                q_eval = q_net(s_b).gather(1, a_b.unsqueeze(1)).squeeze(1)
+            # Gradient step
+            if len(self.buffer) >= self.batch_size:
+                b_states, b_actions, b_rewards, b_next_states, b_dones, b_next_masks = self.buffer.sample(self.batch_size)
+
+                states_t = torch.FloatTensor(b_states).to(self.device)
+                actions_t = torch.LongTensor(b_actions).unsqueeze(1).to(self.device)
+                rewards_t = torch.FloatTensor(b_rewards).unsqueeze(1).to(self.device)
+                next_states_t = torch.FloatTensor(b_next_states).to(self.device)
+                dones_t = torch.FloatTensor(b_dones).unsqueeze(1).to(self.device)
+                next_masks_t = torch.BoolTensor(b_next_masks).to(self.device)
+
+                curr_q = self.q_net(states_t).gather(1, actions_t)
 
                 with torch.no_grad():
-                    next_actions = q_net(ns_b, nm_b).argmax(dim=1, keepdim=True)
-                    q_next = target_net(ns_b).gather(1, next_actions).squeeze(1)
-                    q_target = r_b + (1 - d_b) * 0.99 * q_next
+                    next_q_all = self.target_net(next_states_t)
+                    # Safe action-masked target estimation
+                    masked_next_q = torch.where(next_masks_t, next_q_all, torch.tensor(-1e9, device=self.device))
+                    max_next_q = torch.max(masked_next_q, dim=1, keepdim=True)[0]
+                    # Replace -1e9 for all-False masks (terminal / infeasible) with 0.0
+                    max_next_q = torch.where(max_next_q < -1e8, torch.tensor(0.0, device=self.device), max_next_q)
+                    target_q = rewards_t + (1 - dones_t) * self.gamma * max_next_q
 
-                loss = loss_fn(q_eval, q_target)
-                optimizer.zero_grad()
+                loss = nn.MSELoss()(curr_q, target_q)
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                nn.utils.clip_grad_norm_(self.q_net.parameters(), 1.0)
+                self.optimizer.step()
+                total_loss += loss.item()
 
-            if global_step % 500 == 0:
-                target_net.load_state_dict(q_net.state_dict())
+        metrics = self.env.simulator.get_summary_metrics()
+        return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
 
-        metrics = env.simulator.get_summary_metrics()
-        history_rewards.append(metrics['total_reward'])
-        history_makespans.append(metrics['makespan'])
-        history_delays.append(metrics['delayed_blocks'])
+    def evaluate_and_save(self, training_time_sec: float = 0.0) -> Tuple[Dict[str, Any], float]:
+        """Strict Greedy evaluation without exploration noise."""
+        t_eval_start = time.perf_counter()
+        obs, info = self.env.reset(seed=self.seed)
+        terminated = False
+        self.q_net.eval()
 
-        if ep % 2 == 0 or ep == 1:
-            print(f"    [Episode {ep:>2}/{num_episodes}] 누적보상: {metrics['total_reward']:>9.1f} | Makespan: {metrics['makespan']:>5}일 | 지연블록: {metrics['delayed_blocks']:>3}개 | Epsilon: {epsilon:.3f}")
+        while not terminated:
+            state_t = torch.FloatTensor(obs).to(self.device)
+            mask_t = torch.BoolTensor(info["action_mask"]).to(self.device)
 
-    train_duration = round(time.time() - start_time, 2)
-    print(f"\n Masked EDDQN 학습 완료 (소요 시간: {train_duration}초)")
+            with torch.no_grad():
+                action = self.q_net.get_action(state_t, mask_t, epsilon=0.0)
 
-    model_path = os.path.join(processed_dir, "masked_dqn_model.pth")
-    torch.save(q_net.state_dict(), model_path)
+            next_obs, _, terminated, _, next_info = self.env.step(action)
+            obs = next_obs
+            info = next_info
 
-    # 최종 평가
-    eval_env = ShipyardPlatenGymEnv(reward_version="V2")
-    obs, _ = eval_env.reset()
-    done = False
-    q_net.eval()
+        eval_inference_time = round(time.perf_counter() - t_eval_start, 4)
 
-    t_eval0 = time.time()
-    with torch.no_grad():
-        while not done:
-            mask = get_action_mask(eval_env)
-            s_tensor = torch.FloatTensor(obs).unsqueeze(0).to(device)
-            m_tensor = torch.BoolTensor(mask).unsqueeze(0).to(device)
-            action = q_net(s_tensor, m_tensor).argmax(dim=1).item()
-            obs, reward, term, trunc, _ = eval_env.step(action)
-            done = term or trunc
-    eval_time = round(time.time() - t_eval0, 3)
+        df_out = pd.DataFrame(self.env.simulator.allocation_history)
+        out_csv = os.path.join(base_dir, "data/processed/dqn_scheduling_results.csv")
+        df_out.to_csv(out_csv, index=False)
 
-    final_metrics = eval_env.simulator.get_summary_metrics()
-    eval_csv = os.path.join(processed_dir, "dqn_scheduling_results.csv")
-    pd.DataFrame(eval_env.simulator.allocation_history).to_csv(eval_csv, index=False, encoding='utf-8')
+        model_path = os.path.join(base_dir, "data/processed/dqn_model.pth")
+        torch.save(self.q_net.state_dict(), model_path)
 
-    fig, ax1 = plt.subplots(figsize=(8, 4))
-    ax1.plot(history_rewards, 'b-o', label='Total Reward')
-    ax1.set_xlabel('Episode')
-    ax1.set_ylabel('Reward', color='b')
-    ax1.tick_params(axis='y', labelcolor='b')
+        blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
+        platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
+        evaluator = MetricEvaluator(blocks_csv, platens_csv)
+        eval_res = evaluator.evaluate(df_out, "Action-Masked DQN (Ours)")
 
-    ax2 = ax1.twinx()
-    ax2.plot(history_makespans, 'r--s', label='Makespan (Days)')
-    ax2.set_ylabel('Makespan (Days)', color='r')
-    ax2.tick_params(axis='y', labelcolor='r')
+        update_metrics_json("dqn", {
+            "algorithm": "Action-Masked DQN (Ours)",
+            "compute_time_sec": eval_inference_time,
+            "training_time_sec": round(training_time_sec, 2),
+            "makespan_days": eval_res["makespan_days"],
+            "delayed_blocks": eval_res["delayed_blocks_count"],
+            "timestamp": time.time()
+        })
 
-    plt.title('Action-Masked Double DQN Training Curve', fontsize=12, fontweight='bold')
-    fig.tight_layout()
-    chart_path = os.path.join(processed_dir, "dqn_learning_curve.png")
-    plt.savefig(chart_path, dpi=150)
-    plt.close()
+        return eval_res, eval_inference_time
 
-    print("\n" + "=" * 80)
-    print(" [Action-Masked EDDQN 최종 성적표]")
+def run_dqn_training(episodes: int = 30, seed: int = 42):
     print("=" * 80)
-    print(f"    총 소요 공기 (Makespan): {final_metrics['makespan']} 일")
-    print(f"    납기 지연 블록 수: {final_metrics['delayed_blocks']} 개 / 872개 ({final_metrics['delayed_blocks']/872*100:.1f}%)")
-    print(f"    평균 지연 일수: {final_metrics['avg_delay_days']} 일")
-    print(f"    정반 평균 가동률: {final_metrics['utilization_pct']} %")
-    print(f"    최종 누적 보상: {final_metrics['total_reward']}")
-    print(f"    총 훈련 시간: {train_duration} 초 | 872개 전수 추론 시간: {eval_time} 초")
-    print(f"    결과 CSV: {eval_csv}")
+    print(f"Training Action-Masked DQN for {episodes} Episodes (Seed: {seed})")
     print("=" * 80)
 
-    return final_metrics
+    trainer = DQNTrainer(lr=3e-4, seed=seed)
+    t_train_start = time.perf_counter()
+
+    eps_start = 1.0
+    eps_end = 0.05
+    eps_decay = (eps_start - eps_end) / max(1, episodes - 5)
+
+    for ep in range(1, episodes + 1):
+        eps = max(eps_end, eps_start - (ep - 1) * eps_decay)
+        r, m, d = trainer.train_episode(epsilon=eps)
+
+        if ep % trainer.target_update_freq == 0:
+            trainer.target_net.load_state_dict(trainer.q_net.state_dict())
+
+        if ep % 10 == 0 or ep == 1:
+            print(f"   [Episode {ep:>3}/{episodes}] Eps: {eps:.2f} | Reward: {r:>8.1f} | Makespan: {m:>4}d | Delayed: {d:>3}/872")
+
+    training_time = time.perf_counter() - t_train_start
+    print(f"\nDQN Training Complete ({training_time:.2f}s). Running Strict Greedy Evaluation...")
+
+    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time)
+    print("=" * 80)
+    print("Action-Masked DQN Final Evaluation Results")
+    print("=" * 80)
+    print(f"   Makespan: {eval_res['makespan_days']} Days")
+    print(f"   Delayed Blocks: {eval_res['delayed_blocks_count']} / 872 ({eval_res['delayed_blocks_pct']}%)")
+    print(f"   Average Delay: {eval_res['avg_delay_days_all']} Days")
+    print(f"   Platen Utilization: {eval_res['utilization_pct']} %")
+    print(f"   Integrity: {'PASS' if eval_res['integrity']['passed'] else 'FAIL'}")
+    print(f"   Constraint Violations: {eval_res['violations']['total']}")
+    print(f"   100% Feasible: {eval_res['is_100pct_feasible']}")
+    print(f"   Inference Time: {eval_time:.4f}s (Logged to benchmark_metrics.json)")
+    print("=" * 80)
+    return eval_res
 
 if __name__ == "__main__":
-    train_masked_dqn(num_episodes=25)
+    run_dqn_training(episodes=30, seed=42)

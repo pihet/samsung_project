@@ -1,31 +1,24 @@
 # simulation/simulator.py
 """
 ================================================================================
-Shipyard Platen Discrete Event Simulator Engine
+Shipyard Platen Discrete Event Simulator Engine (V1 / V2 / V3 Experimental Ablation)
 ================================================================================
-- Modeled Constraints (Explicit Definitions):
-  1. Spatial Feasibility (with 90-deg planar rotation):
-     max(block_length, block_width) <= max(platen_length, platen_width) and
-     min(block_length, block_width) <= min(platen_length, platen_width)
-  2. Crane Capacity Feasibility:
-     block_weight_ton <= platen_crane_capacity_ton
-  3. EST Precedence (Arrival Date):
-     planned_start_day >= earliest_start_day (EST).
-     (Note: This models earliest available release date; inter-block DAG dependencies
-      are not modeled due to absence of dependency graph in source data).
-  4. Platen Non-overlapping (Single-Occupancy Interval):
-     Each platen processes one block at a time sequentially [planned_start, planned_end).
-     (Note: Multi-block 2D coordinate sub-packing within a platen is not modeled).
-  5. Initial Platen Status (2017-11-16 vs 2018-02-24):
-     Initial platen occupancy from initial_platen_status.csv ended on 2017-11-16 (Day 43055),
-     which is 100 days prior to the first block arrival on 2018-02-24 (Day 43155).
-     Thus all 66 platens start fully available (day 0) at simulation launch.
+- Feature & Reward Ablation Versions:
+  * feature_version="V1": Base physical & calendar features only.
+    (Engineered features [slack, urgency, cluster] in state vector are neutral 0.0, keeping fixed 208-dim).
+  * feature_version="V2": Full feature engineering active [slack_days, urgency_ratio, cluster_id, area_ratio].
+  
+  * reward_version="V1": Simple linear delay penalty: R = -1.0 * delay_days.
+  * reward_version="V2": Feature-linked reward (delay penalty + area utilization).
+  * reward_version="V3": Multi-objective balanced reward:
+    R = R_feas - alpha * (delay_days)^2 + beta * area_util - gamma * workload_std + min(5.0, delta * early_days)
+    (with R_feas=10.0, alpha=0.05, beta=5.0, gamma=0.05, delta=0.2).
 
-- Hard Constraint & Infeasibility Handling:
-  - If a block has NO feasible platens across the entire shipyard:
-    The block is explicitly recorded as INFEASIBLE_REJECTED with is_feasible=False.
-  - If a block has feasible platens but an invalid action is chosen:
-    Agent receives a heavy penalty (-500.0) and simulator falls back to a valid platen.
+- Modeled Constraints (Explicit Definitions):
+  1. Spatial Feasibility (with 90-deg planar rotation).
+  2. Crane Capacity Feasibility (block weight <= platen crane capacity).
+  3. EST Precedence (planned_start >= earliest_start_date; release date).
+  4. Platen Non-overlapping (single-occupancy interval per platen).
 ================================================================================
 """
 
@@ -41,8 +34,9 @@ class ShipyardPlatenSimulator:
         blocks_source: Union[str, pd.DataFrame] = None, 
         platens_source: Union[str, pd.DataFrame] = None,
         initial_status_source: Union[str, pd.DataFrame] = None,
-        reward_version: str = "V2",
-        order_by: str = "est_urgency"  # 'est_urgency' or 'raw'
+        feature_version: str = "V2",  # 'V1' (Base) or 'V2' (Engineered)
+        reward_version: str = "V2",   # 'V1' (Simple), 'V2' (Area), 'V3' (Multi-obj)
+        order_by: str = "est_urgency" # 'est_urgency' or 'raw'
     ):
         cur_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = os.path.dirname(cur_dir)
@@ -83,6 +77,7 @@ class ShipyardPlatenSimulator:
             if os.path.exists(std_init):
                 self.df_initial_status = pd.read_csv(std_init)
 
+        self.feature_version = feature_version
         self.reward_version = reward_version
         self.order_by = order_by
 
@@ -126,15 +121,13 @@ class ShipyardPlatenSimulator:
         self.step_count = 0
         self.platen_schedules: Dict[int, List[Dict[str, Any]]] = {i: [] for i in range(self.num_platens)}
         
-        # Initial availability calculation from initial_platen_status.csv
+        # Initial availability calculation from initial_platen_status.csv (all 0 at base date)
         self.platen_available_days = np.zeros(self.num_platens, dtype=int)
         if self.df_initial_status is not None and 'expected_end_day_serial' in self.df_initial_status.columns:
-            # Base date 2018-02-24 is Excel serial 43155
             base_serial = 43155
             for _, row in self.df_initial_status.iterrows():
                 p_name = str(row.get('platen_name', ''))
                 end_serial = int(row['expected_end_day_serial'])
-                # Find matching platen
                 p_matches = self.df_platens[self.df_platens['platen_name'] == p_name]
                 if len(p_matches) > 0:
                     p_idx = int(p_matches.index[0])
@@ -213,7 +206,7 @@ class ShipyardPlatenSimulator:
             raise IndexError("All blocks already scheduled. Please reset simulator.")
 
         b = self.df_blocks.iloc[self.current_block_idx]
-        is_requested_feasible, reason = self.check_feasibility(self.current_block_idx, action_platen_idx)
+        is_requested_feasible, _ = self.check_feasibility(self.current_block_idx, action_platen_idx)
 
         # Check overall block feasibility across all platens
         mask = self.get_action_mask(self.current_block_idx)
@@ -246,7 +239,7 @@ class ShipyardPlatenSimulator:
             return record
 
         if not is_requested_feasible:
-            # Case 2: Requested platen is invalid, but other feasible platens exist -> Safe fallback with penalty
+            # Case 2: Invalid platen requested -> Fallback with penalty
             actual_platen_idx = self.find_safe_fallback_platen(self.current_block_idx)
             penalty = -500.0
         else:
@@ -310,17 +303,23 @@ class ShipyardPlatenSimulator:
         area_utilization = min(1.0, b_area / max(1.0, p_area))
 
         if self.reward_version == "V1":
-            return -float(delay_days) + 0.1 * early_days
+            # Simple linear delay penalty
+            return -1.0 * float(delay_days)
         elif self.reward_version == "V2":
+            # Feature-linked reward
             r = 10.0
             r -= float(delay_days) * 2.0
             r += min(5.0, early_days * 0.2)
             r += area_utilization * 5.0
             return r
-        else: # V3: Workload balance
-            avg_avail = np.mean(self.platen_available_days)
+        else: # V3: Multi-objective structured reward
+            # R = R_feas - alpha * delay^2 + beta * area_util - gamma * workload_std + delta * early_bonus
             std_avail = np.std(self.platen_available_days)
-            r = 10.0 - float(delay_days) * 3.0 + area_utilization * 5.0 - (std_avail * 0.05)
+            r = 10.0
+            r -= 0.05 * (float(delay_days) ** 2)
+            r += 5.0 * area_utilization
+            r -= 0.05 * std_avail
+            r += min(5.0, 0.2 * float(early_days))
             return r
 
     def _get_state(self) -> np.ndarray:
@@ -335,12 +334,17 @@ class ShipyardPlatenSimulator:
         b_lead = float(b.get('lead_time_days', b.get('processing_time_days', 10)))
         b_est = float(b.get('est_day', 0))
         b_due = float(b.get('due_day', 0))
-        b_slack = float(b.get('slack_days', (b_due - b_est) - b_lead))
-        b_urgency = float(b.get('urgency_ratio', min(1.0, b_lead / max(1.0, b_due - b_est))))
         b_type = 1.0 if str(b.get('block_type', '')).upper() == 'FLAT' else 0.0
-        
-        # Connect EDA cluster_id (0..3)
-        b_cluster = float(b.get('cluster_id', b.get('block_cluster', 0))) / 4.0
+
+        if self.feature_version == "V1":
+            # Neutral values (0.0) for engineered features in V1 to preserve fixed 208-dim
+            b_slack = 0.0
+            b_urgency = 0.0
+            b_cluster = 0.0
+        else: # V2 / V3
+            b_slack = float(b.get('slack_days', (b_due - b_est) - b_lead)) / 200.0
+            b_urgency = float(b.get('urgency_ratio', min(1.0, b_lead / max(1.0, b_due - b_est))))
+            b_cluster = float(b.get('cluster_id', b.get('block_cluster', 0))) / 4.0
 
         block_feature = [
             b_len / 35.0,
@@ -349,7 +353,7 @@ class ShipyardPlatenSimulator:
             b_lead / 80.0,
             b_est / 1500.0,
             b_due / 1500.0,
-            b_slack / 200.0,
+            b_slack,
             b_urgency,
             b_type,
             b_cluster

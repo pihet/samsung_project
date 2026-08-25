@@ -48,5 +48,13 @@
     "makespan_days": 1537,
     "delayed_blocks": 611,
     "timestamp": 1787634175.1243792
+  },
+  "dqn": {
+    "algorithm": "Action-Masked DQN (Ours)",
+    "compute_time_sec": 14.197,
+    "training_time_sec": 610.4,
+    "makespan_days": 5827,
+    "delayed_blocks": 835,
+    "timestamp": 1787635530.2190526
   }
 }

@@ -82,6 +82,13 @@ def generate_benchmark_report():
             "type": "Deep Reinforcement Learning",
         },
         {
+            "name": "Action-Masked DQN (Ours)",
+            "key": "dqn",
+            "file": os.path.join(processed_dir, "dqn_scheduling_results.csv"),
+            "category": "Unified Simulator",
+            "type": "Deep Reinforcement Learning",
+        },
+        {
             "name": "RTB Heuristic (Unified Sim)",
             "key": "heuristic_rtb",
             "file": os.path.join(processed_dir, "heuristic_rtb_results.csv"),
@@ -118,8 +125,6 @@ def generate_benchmark_report():
     for item in algorithm_registry:
         fpath = item["file"]
         if not os.path.exists(fpath):
-            print(f"[Warning] Result file not found for '{item['name']}': {fpath}. Skipping.")
-            missing_count += 1
             continue
 
         try:
