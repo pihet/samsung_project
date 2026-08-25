@@ -1,240 +1,404 @@
+// frontend/src/App.js
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-// FastAPI 백엔드 엔드포인트 URL (포트 8000) 
 const API_BASE = 'http://localhost:8000';
 
 function App() {
-  const [amount, setAmount] = useState(2500000);
-  const [hour, setHour] = useState(14);
-  const [category, setCategory] = useState(2);
-  const [freq, setFreq] = useState(5);
+  const [activeTab, setActiveTab] = useState('benchmark');
+  const [backendHealth, setBackendHealth] = useState({ status: 'Connecting...', platens_count: 0 });
+  const [leaderboard, setLeaderboard] = useState([]);
   
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [modelStatus, setModelStatus] = useState({ accuracy: '99.37%', status: 'Active (MinIO)' });
+  // Schedule state
+  const [selectedAlgo, setSelectedAlgo] = useState('ortools');
+  const [scheduleData, setScheduleData] = useState(null);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. 초기 헬스체크 및 모델 정보 로드
+  // Recommend state
+  const [reqBlockId, setReqBlockId] = useState('B284');
+  const [reqShipId, setReqShipId] = useState('H1088');
+  const [reqLength, setReqLength] = useState(20.0);
+  const [reqWidth, setReqWidth] = useState(18.4);
+  const [reqWeight, setReqWeight] = useState(211.0);
+  const [reqLeadTime, setReqLeadTime] = useState(72);
+  const [reqEstDay, setReqEstDay] = useState(10);
+  const [reqDueDay, setReqDueDay] = useState(90);
+  const [reqBlockType, setReqBlockType] = useState('FLAT');
+  const [recommendResult, setRecommendResult] = useState(null);
+  const [loadingRecommend, setLoadingRecommend] = useState(false);
+
+  // 1. Health check & Benchmark Leaderboard
   useEffect(() => {
     fetch(`${API_BASE}/health`)
       .then(res => res.json())
-      .then(data => {
-        if (data.model_metadata && data.model_metadata.final_accuracy) {
-          setModelStatus({
-            accuracy: `${(data.model_metadata.final_accuracy * 100).toFixed(2)}%`,
-            status: 'Loaded (MinIO)'
-          });
-        }
-      })
-      .catch(() => console.log('Serving backend connecting...'));
+      .then(data => setBackendHealth(data))
+      .catch(() => setBackendHealth({ status: 'Offline', platens_count: 0 }));
+
+    fetch(`${API_BASE}/api/benchmark`)
+      .then(res => res.json())
+      .then(data => setLeaderboard(data.leaderboard || []))
+      .catch(err => console.error('Benchmark fetch error:', err));
   }, []);
 
-  // 2. 실시간 딥러닝 추론 실행
-  const handlePredict = async () => {
-    setLoading(true);
+  // 2. Fetch Schedule data when selectedAlgo changes
+  useEffect(() => {
+    if (activeTab === 'schedule') {
+      setLoadingSchedule(true);
+      fetch(`${API_BASE}/api/schedule/${selectedAlgo}`)
+        .then(res => res.json())
+        .then(data => {
+          setScheduleData(data);
+          setLoadingSchedule(false);
+        })
+        .catch(err => {
+          console.error('Schedule fetch error:', err);
+          setLoadingSchedule(false);
+        });
+    }
+  }, [selectedAlgo, activeTab]);
+
+  // 3. Handle Real-time Recommendation
+  const handleRecommend = async () => {
+    setLoadingRecommend(true);
     try {
-      const res = await fetch(`${API_BASE}/predict`, {
+      const res = await fetch(`${API_BASE}/api/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: parseFloat(amount),
-          hour: parseFloat(hour),
-          item_category: parseFloat(category),
-          user_frequency: parseFloat(freq)
+          block_id: reqBlockId,
+          ship_id: reqShipId,
+          length_m: parseFloat(reqLength),
+          width_m: parseFloat(reqWidth),
+          weight_ton: parseFloat(reqWeight),
+          lead_time_days: parseInt(reqLeadTime),
+          est_day: parseInt(reqEstDay),
+          due_day: parseInt(reqDueDay),
+          block_type: reqBlockType
         })
       });
       const data = await res.json();
-      setResult(data);
-
-      // 히스토리 추가
-      const newEntry = {
-        id: Date.now(),
-        time: new Date().toLocaleTimeString(),
-        amount: Number(amount).toLocaleString() + ' 원',
-        prob: `${(data.vip_probability * 100).toFixed(1)}%`,
-        decision: data.decision,
-        isVip: data.is_vip,
-        latency: `${data.inference_time_ms} ms`
-      };
-      setHistory(prev => [newEntry, ...prev.slice(0, 4)]);
+      setRecommendResult(data);
     } catch (err) {
-      alert('추론 요청 실패: ' + err.message);
+      alert('Recommendation API error: ' + err.message);
     } finally {
-      setLoading(false);
+      setLoadingRecommend(false);
     }
   };
 
-  // 3. 모델 무중단 핫 리로드
-  const handleReload = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/reload-model`, { method: 'POST' });
-      const data = await res.json();
-      alert(' MinIO로부터 최신 딥러닝 모델이 성공적으로 핫 리로드되었습니다!');
-    } catch (err) {
-      alert('리로드 실패: ' + err.message);
+  const setPreset = (type) => {
+    if (type === 'type_a') {
+      setReqBlockId('B101'); setReqLength(16.0); setReqWidth(14.0); setReqWeight(120.0); setReqLeadTime(35); setReqEstDay(20); setReqDueDay(70); setReqBlockType('FLAT');
+    } else if (type === 'type_b') {
+      setReqBlockId('B836'); setReqLength(6.5); setReqWidth(21.0); setReqWeight(49.0); setReqLeadTime(15); setReqEstDay(5); setReqDueDay(30); setReqBlockType('FLAT');
+    } else if (type === 'type_c') {
+      setReqBlockId('B284'); setReqLength(20.0); setReqWidth(18.4); setReqWeight(211.0); setReqLeadTime(72); setReqEstDay(10); setReqDueDay(90); setReqBlockType('FLAT');
+    } else if (type === 'type_d') {
+      setReqBlockId('B412'); setReqLength(24.0); setReqWidth(16.0); setReqWeight(190.0); setReqLeadTime(55); setReqEstDay(0); setReqDueDay(60); setReqBlockType('CURVED');
     }
   };
+
+  const filteredSchedule = scheduleData?.schedule?.filter(item => 
+    item.block_id.toString().toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.platen_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.ship_id.toLowerCase().includes(searchTerm.toLowerCase())
+  ) || [];
 
   return (
-    <div className="dashboard-container">
-      {/* 헤더 */}
-      <div className="header-section">
-        <div className="header-title">
-          <h1> MLOps AI Real-Time Inference Platform</h1>
-          <p>Kafka  Spark 분산 ETL  MinIO S3 Lake  Keras 딥러닝  React + FastAPI</p>
+    <div className="app-container">
+      {/* Header */}
+      <header className="app-header">
+        <div className="header-left">
+          <div className="logo-badge">SHI MLOps</div>
+          <div>
+            <h1>Samsung Heavy Industries Smart Shipyard Platen Optimization</h1>
+            <p className="subtitle">Reinforcement Learning & Constraint Programming Hybrid Platform</p>
+          </div>
         </div>
-        <button className="btn-predict" style={{ width: 'auto', padding: '0.6rem 1.2rem', fontSize: '0.9rem' }} onClick={handleReload}>
-           MinIO 모델 핫 리로드
+        <div className="header-right">
+          <div className="stat-pill">
+            <span className="pill-label">Total Blocks</span>
+            <span className="pill-val">872</span>
+          </div>
+          <div className="stat-pill">
+            <span className="pill-label">Total Platens</span>
+            <span className="pill-val">66</span>
+          </div>
+          <div className="stat-pill highlight">
+            <span className="pill-label">Best Makespan</span>
+            <span className="pill-val">1,216 Days</span>
+          </div>
+          <div className={`status-indicator ${backendHealth.status === 'healthy' ? 'online' : 'offline'}`}>
+            Backend: {backendHealth.status}
+          </div>
+        </div>
+      </header>
+
+      {/* Navigation Tabs */}
+      <nav className="tab-nav">
+        <button className={`tab-btn ${activeTab === 'benchmark' ? 'active' : ''}`} onClick={() => setActiveTab('benchmark')}>
+          Benchmark Leaderboard (11 Algorithms)
         </button>
-      </div>
+        <button className={`tab-btn ${activeTab === 'schedule' ? 'active' : ''}`} onClick={() => setActiveTab('schedule')}>
+          Interactive Gantt Schedule Viewer
+        </button>
+        <button className={`tab-btn ${activeTab === 'recommend' ? 'active' : ''}`} onClick={() => setActiveTab('recommend')}>
+          Real-time AI Platen Recommender
+        </button>
+      </nav>
 
-      {/* 상태 통계 카드 4종 */}
-      <div className="status-grid">
-        <div className="status-card">
-          <span className="label">Cluster Infrastructure</span>
-          <span className="value badge-pulse"><span className="pulse-dot"></span> K8s Cluster (K3s)</span>
-        </div>
-        <div className="status-card">
-          <span className="label">Streaming & Storage</span>
-          <span className="value">Kafka + MinIO Lake</span>
-        </div>
-        <div className="status-card">
-          <span className="label">Active Model Accuracy</span>
-          <span className="value" style={{ color: '#38bdf8' }}>{modelStatus.accuracy}</span>
-        </div>
-        <div className="status-card">
-          <span className="label">Serving Engine</span>
-          <span className="value badge-pulse"><span className="pulse-dot"></span> FastAPI Sub-2ms</span>
-        </div>
-      </div>
-
-      {/* 메인 인터랙티브 패널 */}
-      <div className="main-grid">
-        {/* 입력 폼 */}
-        <div className="glass-panel">
-          <div className="panel-header">
-            <span> 실시간 주문 피처 시뮬레이터</span>
+      {/* Main Content */}
+      <main className="main-content">
+        {/* TAB 1: Benchmark Leaderboard */}
+        {activeTab === 'benchmark' && (
+          <div className="section-card">
+            <div className="card-header">
+              <h2>Algorithm Benchmark Leaderboard</h2>
+              <span className="badge">Evaluated on 872 Blocks x 66 Platens</span>
+            </div>
+            <p className="card-desc">
+              Comparison between Google OR-Tools CP-SAT, PPO Actor-Critic, Double DQN, and Research Paper Baselines.
+            </p>
+            <div className="table-responsive">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Algorithm</th>
+                    <th>Methodology Type</th>
+                    <th>Total Makespan</th>
+                    <th>Delayed Blocks</th>
+                    <th>Compute Time</th>
+                    <th>Deployment Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaderboard.map((item, idx) => (
+                    <tr key={idx} className={item.rank === 1 ? 'rank-gold' : item.rank === 2 ? 'rank-silver' : item.rank === 3 ? 'rank-bronze' : ''}>
+                      <td className="rank-cell">#{item.rank}</td>
+                      <td className="algo-name">{item.algorithm}</td>
+                      <td><span className="type-tag">{item.type}</span></td>
+                      <td className="metric-val">{item.makespan_days.toLocaleString()} Days</td>
+                      <td>{item.delayed_blocks} / 872 ({((item.delayed_blocks/872)*100).toFixed(1)}%)</td>
+                      <td>{item.compute_time_sec} s</td>
+                      <td><span className="status-tag">{item.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+        )}
 
-          <div className="form-group">
-            <label>
-              <span>주문 금액 (KRW)</span>
-              <strong style={{ color: '#38bdf8' }}>{Number(amount).toLocaleString()} 원</strong>
-            </label>
-            <input
-              type="range"
-              min="100000"
-              max="5000000"
-              step="50000"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
+        {/* TAB 2: Gantt Schedule Viewer */}
+        {activeTab === 'schedule' && (
+          <div className="section-card">
+            <div className="card-header">
+              <h2>Interactive Platen Timeline Schedule</h2>
+              <div className="algo-selector">
+                <button className={`selector-btn ${selectedAlgo === 'ortools' ? 'active' : ''}`} onClick={() => setSelectedAlgo('ortools')}>
+                  Google OR-Tools CP-SAT (1,216d)
+                </button>
+                <button className={`selector-btn ${selectedAlgo === 'ppo' ? 'active' : ''}`} onClick={() => setSelectedAlgo('ppo')}>
+                  PPO Actor-Critic (1,398d)
+                </button>
+                <button className={`selector-btn ${selectedAlgo === 'dqn' ? 'active' : ''}`} onClick={() => setSelectedAlgo('dqn')}>
+                  Double DQN (1,533d)
+                </button>
+              </div>
+            </div>
 
-          <div className="form-group">
-            <label>
-              <span>주문 시간대 (0 ~ 23시)</span>
-              <strong>{hour} 시</strong>
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="23"
-              value={hour}
-              onChange={(e) => setHour(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label><span>상품 카테고리</span></label>
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              <option value="1">1. 프리미엄 가전 (MacBook, TV 등)</option>
-              <option value="2">2. IT / 모바일 전자기기</option>
-              <option value="3">3. 생활 / 패션 잡화</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>
-              <span>과거 구매 횟수</span>
-              <strong>{freq} 회</strong>
-            </label>
-            <input
-              type="number"
-              min="1"
-              max="50"
-              value={freq}
-              onChange={(e) => setFreq(e.target.value)}
-            />
-          </div>
-
-          <button className="btn-predict" onClick={handlePredict} disabled={loading}>
-            {loading ? ' 딥러닝 신경망 추론 연산 중...' : ' 실시간 딥러닝 추론 실행'}
-          </button>
-        </div>
-
-        {/* 결과 카드 */}
-        <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="panel-header">
-            <span> 딥러닝 신경망 판정 결과</span>
-          </div>
-
-          <div className="result-card" style={{ flex: 1 }}>
-            {result ? (
+            {loadingSchedule ? (
+              <div className="loading-box">Loading 872 block timeline data...</div>
+            ) : (
               <>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>VIP 고객 분류 확률</span>
-                <div className="prob-circle">{(result.vip_probability * 100).toFixed(1)}%</div>
-                <div className={`decision-tag ${result.is_vip ? 'decision-vip' : 'decision-normal'}`}>
-                  {result.decision}
+                <div className="kpi-grid">
+                  <div className="kpi-card">
+                    <span className="kpi-title">Total Makespan</span>
+                    <span className="kpi-number">{scheduleData?.makespan_days} Days</span>
+                  </div>
+                  <div className="kpi-card">
+                    <span className="kpi-title">Delayed Blocks</span>
+                    <span className="kpi-number text-danger">{scheduleData?.delayed_blocks} / {scheduleData?.total_blocks}</span>
+                  </div>
+                  <div className="kpi-card">
+                    <span className="kpi-title">Total Delay Days</span>
+                    <span className="kpi-number">{scheduleData?.total_delay_days?.toLocaleString()} Days</span>
+                  </div>
+                  <div className="kpi-card">
+                    <span className="kpi-title">On-time Completion</span>
+                    <span className="kpi-number text-success">
+                      {scheduleData ? (((scheduleData.total_blocks - scheduleData.delayed_blocks) / scheduleData.total_blocks) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
                 </div>
-                <div className="speed-tag">
-                   K8s 파드 추론 소요 시간: <strong style={{ color: '#38bdf8' }}>{result.inference_time_ms} ms</strong>
+
+                <div className="search-bar">
+                  <input 
+                    type="text" 
+                    placeholder="Search by Block ID, Ship ID, or Platen Name (e.g. B284, H1088, Bay48)..." 
+                    value={searchTerm} 
+                    onChange={e => setSearchTerm(e.target.value)} 
+                  />
+                  <span className="search-count">Showing {filteredSchedule.length} / {scheduleData?.total_blocks} Blocks</span>
+                </div>
+
+                <div className="schedule-table-box">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Block ID</th>
+                        <th>Ship ID</th>
+                        <th>Assigned Platen</th>
+                        <th>Start Day</th>
+                        <th>End Day</th>
+                        <th>Due Day</th>
+                        <th>Lead Time</th>
+                        <th>Delay Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredSchedule.slice(0, 100).map((item, idx) => (
+                        <tr key={idx} className={item.delay_days > 0 ? 'row-delayed' : 'row-ontime'}>
+                          <td className="fw-bold">{item.block_id}</td>
+                          <td>{item.ship_id}</td>
+                          <td><span className="platen-badge">{item.platen_name}</span></td>
+                          <td>Day {item.planned_start_day}</td>
+                          <td>Day {item.planned_end_day}</td>
+                          <td>Day {item.due_day}</td>
+                          <td>{item.lead_time_days} days</td>
+                          <td>
+                            {item.delay_days > 0 ? (
+                              <span className="delay-tag">Delayed +{item.delay_days}d</span>
+                            ) : (
+                              <span className="ontime-tag">On Time</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredSchedule.length > 100 && (
+                    <div className="table-footer-note">Showing first 100 rows of {filteredSchedule.length} filtered items.</div>
+                  )}
                 </div>
               </>
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }}>
-                좌측에서 슬라이더를 조절하고<br/><strong>실시간 딥러닝 추론 실행</strong> 버튼을 눌러주세요.
-              </p>
             )}
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* 최근 추론 기록 테이블 */}
-      {history.length > 0 && (
-        <div className="glass-panel">
-          <div className="panel-header">
-            <span> 최근 실시간 추론 스트림 이력</span>
-          </div>
-          <table className="history-table">
-            <thead>
-              <tr>
-                <th>요청 시각</th>
-                <th>주문 금액</th>
-                <th>VIP 확률</th>
-                <th>판정 결과</th>
-                <th>소요 시간</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map(item => (
-                <tr key={item.id}>
-                  <td>{item.time}</td>
-                  <td>{item.amount}</td>
-                  <td style={{ fontWeight: 700, color: '#38bdf8' }}>{item.prob}</td>
-                  <td>
-                    <span className={`decision-tag ${item.isVip ? 'decision-vip' : 'decision-normal'}`} style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem' }}>
-                      {item.decision}
+        {/* TAB 3: Real-time AI Recommender */}
+        {activeTab === 'recommend' && (
+          <div className="section-card">
+            <div className="card-header">
+              <h2>Real-time AI Platen Placement Recommender (PPO Inference)</h2>
+              <span className="badge">Latency: &lt;10 ms</span>
+            </div>
+            <p className="card-desc">
+              Input new or emergency block specifications to evaluate against 66 platens and receive instant optimal allocation.
+            </p>
+
+            <div className="preset-bar">
+              <span className="preset-label">Quick Presets:</span>
+              <button className="preset-btn" onClick={() => setPreset('type_a')}>Type-A (Standard 120T)</button>
+              <button className="preset-btn" onClick={() => setPreset('type_b')}>Type-B (Small 49T)</button>
+              <button className="preset-btn" onClick={() => setPreset('type_c')}>Type-C (Heavy 211T)</button>
+              <button className="preset-btn" onClick={() => setPreset('type_d')}>Type-D (Curved Urgent)</button>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Block ID</label>
+                <input type="text" value={reqBlockId} onChange={e => setReqBlockId(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Ship ID</label>
+                <input type="text" value={reqShipId} onChange={e => setReqShipId(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Length (m)</label>
+                <input type="number" step="0.1" value={reqLength} onChange={e => setReqLength(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Width (m)</label>
+                <input type="number" step="0.1" value={reqWidth} onChange={e => setReqWidth(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Weight (Ton)</label>
+                <input type="number" step="0.1" value={reqWeight} onChange={e => setReqWeight(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Lead Time (Days)</label>
+                <input type="number" value={reqLeadTime} onChange={e => setReqLeadTime(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>EST Day (Start Window)</label>
+                <input type="number" value={reqEstDay} onChange={e => setReqEstDay(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Due Day (Target)</label>
+                <input type="number" value={reqDueDay} onChange={e => setReqDueDay(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Block Type</label>
+                <select value={reqBlockType} onChange={e => setReqBlockType(e.target.value)}>
+                  <option value="FLAT">FLAT (Flat Block)</option>
+                  <option value="CURVED">CURVED (Curved Block)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-action">
+              <button className="submit-btn" onClick={handleRecommend} disabled={loadingRecommend}>
+                {loadingRecommend ? 'Running Neural Inference...' : 'Execute PPO Optimal Placement'}
+              </button>
+            </div>
+
+            {recommendResult && (
+              <div className="result-box">
+                <div className="result-header">
+                  <h3>AI Optimal Allocation Result</h3>
+                  <span className="speed-tag">{recommendResult.inference_time_ms} ms</span>
+                </div>
+                <div className="result-grid">
+                  <div className="result-item highlight-box">
+                    <span className="res-lbl">Recommended Platen</span>
+                    <span className="res-val-big">{recommendResult.recommended_platen_name}</span>
+                    <span className="res-sub">Platen ID: {recommendResult.recommended_platen_id}</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="res-lbl">Primary Workshop Area</span>
+                    <span className="res-val">{recommendResult.primary_area}</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="res-lbl">Platen Dimensions</span>
+                    <span className="res-val">{recommendResult.platen_dimensions}</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="res-lbl">Crane Capacity</span>
+                    <span className="res-val">{recommendResult.crane_capacity_ton} Ton</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="res-lbl">Area Utilization</span>
+                    <span className="res-val">{recommendResult.area_utilization_pct}%</span>
+                  </div>
+                  <div className="result-item">
+                    <span className="res-lbl">Constraint Verification</span>
+                    <span className="res-val text-success">
+                      Spatial Fit: OK | Crane Safe: OK
                     </span>
-                  </td>
-                  <td>{item.latency}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <span className="res-sub">Candidates Evaluated: {recommendResult.constraints_verified.feasible_candidates_count} platens</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <footer className="app-footer">
+        <p>Samsung Heavy Industries Data Analysis Training Project - On-Premise K8s MLOps Pipeline</p>
+      </footer>
     </div>
   );
 }

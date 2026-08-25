@@ -91,7 +91,7 @@ samsung_project/2차프로젝트/
 │   ├── standardized/                    # 영문 표준화 원천 CSV 데이터 (11종)
 │   └── processed/                       # 파생 피처, 모델 가중치(.pth), 결과 CSV, 비교 차트
 │
-├── serving/                             # [Phase 4: FastAPI 백엔드 서빙]
+├── backend/                             # [Phase 4: FastAPI 백엔드 API & 서빙]
 │   └── app/main.py                      # RESTful 서빙 API 엔드포인트
 │
 ├── frontend/                            # [Phase 5: React 웹 대시보드]
