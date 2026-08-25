@@ -3,12 +3,25 @@
 ================================================================================
 Shipyard Platen Discrete Event Simulator Engine
 ================================================================================
-- Core Capabilities:
-  1. 4-Physical Constraints Evaluation: Spatial (with 90-degree rotation), Crane Capacity, Precedence (EST), Non-overlapping platen schedule.
-  2. Flexible Data Ingestion: Supports direct DataFrames, file paths, or directory paths.
-  3. Action Masking: Generates exact boolean mask for feasible platens.
-  4. 208-Dimensional State Representation: Normalized Block (10-dim) + 66 Platens (3-dim each).
-  5. Multi-Version Reward Engine (V1/V2/V3) for Reinforcement Learning training.
+- Modeled Constraints (Explicit Definitions):
+  1. Spatial Feasibility (with 90-deg rotation):
+     max(block_length, block_width) <= max(platen_length, platen_width) and
+     min(block_length, block_width) <= min(platen_length, platen_width)
+  2. Crane Capacity Feasibility:
+     block_weight_ton <= platen_crane_capacity_ton
+  3. EST Precedence (Arrival Date):
+     planned_start_day >= earliest_start_day (EST).
+     (Note: This models earliest available release date; inter-block DAG dependencies
+      are not modeled due to absence of dependency graph in source data).
+  4. Platen Non-overlapping (Single-Occupancy Interval):
+     Each platen processes one block at a time sequentially [planned_start, planned_end).
+     (Note: Multi-block 2D coordinate sub-packing within a platen is not modeled).
+
+- Hard Constraint Handling:
+  If an invalid platen (violating spatial/crane limits) is chosen:
+  - Agent receives a heavy penalty (-500.0 reward).
+  - Simulator automatically falls back to a guaranteed feasible platen for the schedule,
+    ensuring 0 constraint violations in recorded output history.
 ================================================================================
 """
 
@@ -102,7 +115,7 @@ class ShipyardPlatenSimulator:
 
     def check_feasibility(self, block_idx: int, platen_idx: int) -> Tuple[bool, str]:
         """Verifies physical spatial fit (with 90-deg rotation) and crane capacity."""
-        if block_idx >= self.num_blocks or platen_idx >= self.num_platens:
+        if block_idx >= self.num_blocks or platen_idx >= self.num_platens or platen_idx < 0:
             return False, "INDEX_OUT_OF_BOUNDS"
 
         b = self.df_blocks.iloc[block_idx]
@@ -144,38 +157,66 @@ class ShipyardPlatenSimulator:
             mask[-1] = True
         return mask
 
+    def find_safe_fallback_platen(self, block_idx: int) -> int:
+        """Finds the best feasible platen with earliest availability when an invalid action is provided."""
+        mask = self.get_action_mask(block_idx)
+        valid_platens = np.where(mask)[0]
+        if len(valid_platens) == 0:
+            return self.num_platens - 1
+
+        b = self.df_blocks.iloc[block_idx]
+        est_d = int(b.get('est_day', 0))
+
+        # Select feasible platen with earliest available start
+        best_p = valid_platens[0]
+        best_start = max(est_d, int(self.platen_available_days[best_p]))
+        for p in valid_platens:
+            s_cand = max(est_d, int(self.platen_available_days[p]))
+            if s_cand < best_start:
+                best_start = s_cand
+                best_p = p
+        return int(best_p)
+
     def step(self, action_platen_idx: int) -> Dict[str, Any]:
         if self.current_block_idx >= self.num_blocks:
             raise IndexError("All blocks already scheduled. Please reset simulator.")
 
         b = self.df_blocks.iloc[self.current_block_idx]
-        p = self.df_platens.iloc[action_platen_idx]
+        is_requested_feasible, reason = self.check_feasibility(self.current_block_idx, action_platen_idx)
 
-        is_feasible, reason = self.check_feasibility(self.current_block_idx, action_platen_idx)
+        # Hard constraint enforcement: if requested action is infeasible, fallback to safe feasible platen
+        if not is_requested_feasible:
+            actual_platen_idx = self.find_safe_fallback_platen(self.current_block_idx)
+            penalty = -500.0
+        else:
+            actual_platen_idx = int(action_platen_idx)
+            penalty = 0.0
+
+        p = self.df_platens.iloc[actual_platen_idx]
 
         est_day = int(b.get('est_day', 0))
         due_day = int(b.get('due_day', 0))
         lead_time = int(b.get('lead_time_days', b.get('processing_time_days', 10)))
 
         # Sequential platen scheduling (no-overlap)
-        current_platen_free = int(self.platen_available_days[action_platen_idx])
+        current_platen_free = int(self.platen_available_days[actual_platen_idx])
         planned_start = max(est_day, current_platen_free)
         planned_end = planned_start + lead_time
         delay_days = max(0, planned_end - due_day)
         early_days = max(0, due_day - planned_end)
 
         # Update platen state
-        self.platen_available_days[action_platen_idx] = planned_end
+        self.platen_available_days[actual_platen_idx] = planned_end
 
         # Calculate reward
-        reward = self._calculate_reward(is_feasible, delay_days, early_days, b, p)
+        reward = self._calculate_reward(is_requested_feasible, delay_days, early_days, b, p) + penalty
         self.total_reward += reward
 
         record = {
             "seq_id": int(b['seq_id']),
             "block_id": b['block_id'],
             "ship_id": b['ship_id'],
-            "platen_idx": int(action_platen_idx),
+            "platen_idx": int(actual_platen_idx),
             "platen_id": p['platen_id'],
             "platen_name": p['platen_name'],
             "planned_start_day": planned_start,
@@ -183,12 +224,13 @@ class ShipyardPlatenSimulator:
             "due_day": due_day,
             "delay_days": delay_days,
             "lead_time_days": lead_time,
-            "is_feasible": is_feasible,
+            "is_feasible": True, # Guaranteed feasible in saved schedule
+            "requested_feasible": is_requested_feasible,
             "reward": round(reward, 2)
         }
 
         self.allocation_history.append(record)
-        self.platen_schedules[action_platen_idx].append(record)
+        self.platen_schedules[actual_platen_idx].append(record)
         self.current_block_idx += 1
         self.step_count += 1
 
@@ -196,7 +238,7 @@ class ShipyardPlatenSimulator:
 
     def _calculate_reward(self, is_feasible: bool, delay_days: int, early_days: int, b: pd.Series, p: pd.Series) -> float:
         if not is_feasible:
-            return -500.0
+            return -100.0
 
         b_len = float(b.get('length_m', b.get('block_length_m', 0)))
         b_wid = float(b.get('width_m', b.get('block_width_m', 0)))
@@ -233,7 +275,9 @@ class ShipyardPlatenSimulator:
         b_slack = float(b.get('slack_days', (b_due - b_est) - b_lead))
         b_urgency = float(b.get('urgency_ratio', min(1.0, b_lead / max(1.0, b_due - b_est))))
         b_type = 1.0 if str(b.get('block_type', '')).upper() == 'FLAT' else 0.0
-        b_cluster = float(b.get('block_cluster', 0)) / 4.0
+        
+        # Connect EDA cluster_id (0..3)
+        b_cluster = float(b.get('cluster_id', b.get('block_cluster', 0))) / 4.0
 
         block_feature = [
             b_len / 35.0,

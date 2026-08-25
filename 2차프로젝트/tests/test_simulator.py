@@ -29,11 +29,11 @@ class TestShipyardSimulator(unittest.TestCase):
 
         # 5 Blocks
         self.df_blocks = pd.DataFrame([
-            {"seq_id": 0, "block_id": "B0", "ship_id": "S1", "length_m": 10.0, "width_m": 10.0, "weight_ton": 50.0, "lead_time_days": 10, "earliest_start_date": "2018-02-24", "due_date": "2018-03-26", "est_day": 0, "due_day": 30, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "block_cluster": 0},
-            {"seq_id": 1, "block_id": "B1", "ship_id": "S1", "length_m": 20.0, "width_m": 15.0, "weight_ton": 120.0, "lead_time_days": 15, "earliest_start_date": "2018-03-01", "due_date": "2018-04-10", "est_day": 5, "due_day": 45, "slack_days": 25, "urgency_ratio": 0.375, "block_type": "FLAT", "block_cluster": 0},
-            {"seq_id": 2, "block_id": "B2", "ship_id": "S1", "length_m": 18.0, "width_m": 18.0, "weight_ton": 220.0, "lead_time_days": 20, "earliest_start_date": "2018-02-24", "due_date": "2018-04-15", "est_day": 0, "due_day": 50, "slack_days": 30, "urgency_ratio": 0.40, "block_type": "FLAT", "block_cluster": 2},
-            {"seq_id": 3, "block_id": "B3", "ship_id": "S1", "length_m": 22.0, "width_m": 12.0, "weight_ton": 80.0, "lead_time_days": 10, "earliest_start_date": "2018-03-06", "due_date": "2018-04-05", "est_day": 10, "due_day": 40, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "block_cluster": 0},
-            {"seq_id": 4, "block_id": "B4", "ship_id": "S1", "length_m": 40.0, "width_m": 30.0, "weight_ton": 300.0, "lead_time_days": 30, "earliest_start_date": "2018-02-24", "due_date": "2018-05-25", "est_day": 0, "due_day": 90, "slack_days": 60, "urgency_ratio": 0.33, "block_type": "FLAT", "block_cluster": 2}
+            {"seq_id": 0, "block_id": "B0", "ship_id": "S1", "length_m": 10.0, "width_m": 10.0, "weight_ton": 50.0, "lead_time_days": 10, "earliest_start_date": "2018-02-24", "due_date": "2018-03-26", "est_day": 0, "due_day": 30, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 0},
+            {"seq_id": 1, "block_id": "B1", "ship_id": "S1", "length_m": 20.0, "width_m": 15.0, "weight_ton": 120.0, "lead_time_days": 15, "earliest_start_date": "2018-03-01", "due_date": "2018-04-10", "est_day": 5, "due_day": 45, "slack_days": 25, "urgency_ratio": 0.375, "block_type": "FLAT", "cluster_id": 1},
+            {"seq_id": 2, "block_id": "B2", "ship_id": "S1", "length_m": 18.0, "width_m": 18.0, "weight_ton": 220.0, "lead_time_days": 20, "earliest_start_date": "2018-02-24", "due_date": "2018-04-15", "est_day": 0, "due_day": 50, "slack_days": 30, "urgency_ratio": 0.40, "block_type": "FLAT", "cluster_id": 2},
+            {"seq_id": 3, "block_id": "B3", "ship_id": "S1", "length_m": 22.0, "width_m": 12.0, "weight_ton": 80.0, "lead_time_days": 10, "earliest_start_date": "2018-03-06", "due_date": "2018-04-05", "est_day": 10, "due_day": 40, "slack_days": 20, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 3},
+            {"seq_id": 4, "block_id": "B4", "ship_id": "S1", "length_m": 40.0, "width_m": 30.0, "weight_ton": 300.0, "lead_time_days": 30, "earliest_start_date": "2018-02-24", "due_date": "2018-05-25", "est_day": 0, "due_day": 90, "slack_days": 60, "urgency_ratio": 0.33, "block_type": "FLAT", "cluster_id": 2}
         ])
 
         self.toy_blocks_file = "/tmp/toy_blocks.csv"
@@ -41,7 +41,7 @@ class TestShipyardSimulator(unittest.TestCase):
         self.df_blocks.to_csv(self.toy_blocks_file, index=False)
         self.df_platens.to_csv(self.toy_platens_file, index=False)
 
-        # Initialize simulator with exact raw order for deterministic unit testing
+        # Initialize simulator with raw order for deterministic unit testing
         self.sim = ShipyardPlatenSimulator(self.toy_blocks_file, self.toy_platens_file, order_by="raw")
 
     def test_spatial_constraint(self):
@@ -81,6 +81,32 @@ class TestShipyardSimulator(unittest.TestCase):
         self.assertEqual(res_1["planned_start_day"], 10, "B1 start must wait until P_LARGE is free at day 10")
         self.assertEqual(res_1["planned_end_day"], 25)
         self.assertEqual(self.sim.platen_available_days[2], 25)
+
+    def test_invalid_action_safe_fallback_and_penalty(self):
+        """Test that passing an invalid action (e.g. B1 to P_SMALL) safely falls back to a feasible platen with penalty."""
+        self.sim.reset()
+        # B0: Allocate to P_SMALL (valid)
+        self.sim.step(0)
+        
+        # B1: Try allocating to P_SMALL (invalid - spatial limit exceeded)
+        res_invalid = self.sim.step(0)
+        
+        # Requested action was invalid
+        self.assertFalse(res_invalid["requested_feasible"], "Requested action should be flagged as infeasible")
+        # Actual allocated platen must be feasible (P_MED or P_LARGE)
+        self.assertIn(res_invalid["platen_idx"], [1, 2], "Actual allocated platen must be a safe feasible fallback")
+        self.assertTrue(res_invalid["is_feasible"], "Recorded schedule must be 100% feasible")
+        # Large penalty was applied
+        self.assertLess(res_invalid["reward"], -400.0, "Heavy penalty must be applied for invalid action")
+
+    def test_state_dimension_and_cluster_feature(self):
+        """Test that state vector includes cluster feature and matches 10 + 3*num_platens dimension."""
+        self.sim.reset()
+        state = self.sim._get_state()
+        expected_dim = 10 + 3 * len(self.df_platens) # 10 + 3*3 = 19
+        self.assertEqual(len(state), expected_dim, f"State dimension should be {expected_dim}")
+        # B0 has cluster_id=0 -> feature should be 0.0
+        self.assertEqual(state[9], 0.0)
 
 if __name__ == "__main__":
     unittest.main()

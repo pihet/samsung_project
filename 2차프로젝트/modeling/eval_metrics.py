@@ -1,20 +1,30 @@
 # modeling/eval_metrics.py
 """
 ================================================================================
-Unified Metric Evaluator & Safe Baseline CSV Reader
+Unified Metric Evaluator & Data Integrity Audit Engine
 ================================================================================
-- Features:
-  1. Safe CSV reader: Handles missing headers in raw EDDQN/Heuristic files without modifying raw data.
-  2. Date Normalization: Handles Excel serial dates (base = 43,155) vs relative simulation days.
-  3. Unique Key Tracking: Preserves `seq_id` (0..871) as the immutable primary key.
-  4. 4-Constraint Verification: Spatial (with 90-deg rotation), Crane Capacity, EST Precedence, Non-overlapping.
-  5. Standard Metrics: Makespan, Delayed Block Count/Pct, Total/Avg Delay, Platen Utilization, Violations.
+- Data Integrity Checks:
+  1. Row Count & Completeness: Exactly 872 blocks present.
+  2. Primary Key Uniqueness: seq_id (0..871) has 0 duplicates and 0 omissions.
+  3. Valid Intervals: planned_end_day > planned_start_day.
+  4. Known Platen IDs: All platen assignments exist in the official 66-platen master list.
+
+- 4 Physical Constraint Checks:
+  1. Spatial Feasibility (allows 90-degree planar rotation).
+  2. Crane Capacity Feasibility (block weight <= platen crane limit).
+  3. EST Precedence (planned_start >= earliest_start_date; release date constraint).
+  4. Single-Occupancy Non-overlapping (one block per platen at any given time).
+
+- Research Paper vs Unified Simulator Disclaimers:
+  Historical paper baseline files (EDDQN, paper heuristics) originally utilized multi-block
+  2D coordinate packing in the paper's experiments. They are evaluated here for direct
+  historical metric reference (Makespan, Delay) alongside the unified sequential simulator.
 ================================================================================
 """
 
 import os
 import glob
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 import numpy as np
 import pandas as pd
 
@@ -31,7 +41,7 @@ class SafeScheduleReader:
     """Safe reader for both raw research baselines and newly generated schedule CSVs."""
     
     @staticmethod
-    def load_schedule(filepath: str, df_blocks: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    def load_schedule(filepath: str) -> pd.DataFrame:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Schedule file not found: {filepath}")
 
@@ -40,7 +50,6 @@ class SafeScheduleReader:
         if 'planned_start_day' in df_sample.columns or 'planned_start' in df_sample.columns:
             # Standard modern format
             df = pd.read_csv(filepath)
-            # Normalize column names if needed
             rename_map = {
                 'planned_start': 'planned_start_day',
                 'planned_end': 'planned_end_day',
@@ -77,25 +86,68 @@ class SafeScheduleReader:
         return df
 
 class MetricEvaluator:
-    """Rigorous evaluation engine for 872 blocks x 66 platens scheduling."""
+    """Rigorous evaluation and data integrity audit engine for 872 blocks x 66 platens scheduling."""
     
     def __init__(self, blocks_file: str, platens_file: str):
         self.df_blocks = pd.read_csv(blocks_file)
         self.df_platens = pd.read_csv(platens_file)
         
-        # Ensure seq_id is in df_blocks
         if 'seq_id' not in self.df_blocks.columns:
             self.df_blocks['seq_id'] = np.arange(len(self.df_blocks))
             
-        self.num_blocks = len(self.df_blocks)
+        self.expected_num_blocks = len(self.df_blocks)
         self.num_platens = len(self.df_platens)
+        self.valid_platen_ids: Set[str] = set(self.df_platens['platen_id'].astype(str))
+        
+        # Build platen lookup
+        self.platen_dict = {}
+        for _, p in self.df_platens.iterrows():
+            p_id = str(p['platen_id'])
+            self.platen_dict[p_id] = {
+                'length': float(p['platen_length_m']),
+                'width': float(p['platen_width_m']),
+                'crane_cap': float(p['crane_capacity_ton'])
+            }
+
+        # Build block lookup by seq_id
+        self.block_dict = {}
+        for _, b in self.df_blocks.iterrows():
+            s_id = int(b['seq_id'])
+            est_val = int(b.get('est_day', 0))
+            self.block_dict[s_id] = {
+                'length': float(b.get('length_m', b.get('block_length_m', 0))),
+                'width': float(b.get('width_m', b.get('block_width_m', 0))),
+                'weight': float(b.get('weight_ton', 0)),
+                'est_day': est_val
+            }
+
         self.total_lead_time = float(self.df_blocks['lead_time_days'].sum() if 'lead_time_days' in self.df_blocks.columns else self.df_blocks['processing_time_days'].sum())
 
-    def evaluate(self, df_sched: pd.DataFrame, algorithm_name: str = "Unknown") -> Dict[str, Any]:
-        """Calculates exact KPI metrics and verifies 4 physical constraints."""
+    def evaluate(self, df_sched: pd.DataFrame, algorithm_name: str = "Unknown", is_paper_baseline: bool = False) -> Dict[str, Any]:
+        """Calculates exact KPI metrics, verifies integrity, and checks 4 physical constraints."""
         total_rows = len(df_sched)
-        makespan = int(df_sched['planned_end_day'].max() - df_sched['planned_start_day'].min())
         
+        # --- 1. Data Integrity Audit ---
+        seq_ids = df_sched['seq_id'].tolist() if 'seq_id' in df_sched.columns else list(range(total_rows))
+        unique_seq_ids = set(seq_ids)
+        duplicate_seq_count = total_rows - len(unique_seq_ids)
+        missing_seq_count = max(0, self.expected_num_blocks - len(unique_seq_ids))
+        
+        invalid_intervals_count = int((df_sched['planned_end_day'] <= df_sched['planned_start_day']).sum())
+        
+        unknown_platens_count = 0
+        if 'platen_id' in df_sched.columns:
+            for p_id in df_sched['platen_id']:
+                if str(p_id) not in self.valid_platen_ids and str(p_id) != 'nan':
+                    unknown_platens_count += 1
+
+        integrity_passed = (total_rows == self.expected_num_blocks and 
+                            duplicate_seq_count == 0 and 
+                            missing_seq_count == 0 and 
+                            invalid_intervals_count == 0)
+
+        # --- 2. Makespan & Delay Metrics ---
+        makespan = int(df_sched['planned_end_day'].max() - df_sched['planned_start_day'].min())
         delayed_mask = df_sched['delay_days'] > 0
         delayed_count = int(delayed_mask.sum())
         delayed_pct = round((delayed_count / max(1, total_rows)) * 100, 2)
@@ -105,52 +157,29 @@ class MetricEvaluator:
         
         utilization_pct = round((self.total_lead_time / max(1, (self.num_platens * makespan))) * 100, 2)
 
-        # Constraint Verifications
+        # --- 3. 4 Physical Constraint Checks ---
         spatial_violations = 0
         crane_violations = 0
         est_violations = 0
         overlap_violations = 0
 
-        # Build platen lookup
-        platen_dict = {}
-        for _, p in self.df_platens.iterrows():
-            p_id = str(p['platen_id'])
-            platen_dict[p_id] = {
-                'length': float(p['platen_length_m']),
-                'width': float(p['platen_width_m']),
-                'crane_cap': float(p['crane_capacity_ton'])
-            }
-
-        # Build block lookup by seq_id
-        block_dict = {}
-        for _, b in self.df_blocks.iterrows():
-            s_id = int(b['seq_id'])
-            est_val = int(b.get('est_day', 0))
-            block_dict[s_id] = {
-                'length': float(b.get('length_m', b.get('block_length_m', 0))),
-                'width': float(b.get('width_m', b.get('block_width_m', 0))),
-                'weight': float(b.get('weight_ton', 0)),
-                'est_day': est_val
-            }
-
-        # Interval overlap tracking per platen
         platen_intervals: Dict[str, List[Tuple[int, int, int]]] = {}
 
         for _, row in df_sched.iterrows():
-            s_id = int(row['seq_id'])
+            s_id = int(row['seq_id']) if 'seq_id' in row else 0
             p_id = str(row.get('platen_id', ''))
             start_d = int(row['planned_start_day'])
             end_d = int(row['planned_end_day'])
 
-            # 1. EST Precedence check
-            if s_id in block_dict:
-                b_info = block_dict[s_id]
+            # EST check
+            if s_id in self.block_dict:
+                b_info = self.block_dict[s_id]
                 if start_d < b_info['est_day']:
                     est_violations += 1
 
-                # 2. Spatial & Crane check
-                if p_id in platen_dict:
-                    p_info = platen_dict[p_id]
+                # Spatial & Crane check
+                if p_id in self.platen_dict:
+                    p_info = self.platen_dict[p_id]
                     b_max, b_min = max(b_info['length'], b_info['width']), min(b_info['length'], b_info['width'])
                     p_max, p_min = max(p_info['length'], p_info['width']), min(p_info['length'], p_info['width'])
 
@@ -159,12 +188,11 @@ class MetricEvaluator:
                     if b_info['weight'] > p_info['crane_cap']:
                         crane_violations += 1
 
-            # 3. Non-overlapping check
+            # Non-overlapping interval tracking
             if p_id not in platen_intervals:
                 platen_intervals[p_id] = []
             platen_intervals[p_id].append((start_d, end_d, s_id))
 
-        # Check intervals for overlaps
         for p_id, intervals in platen_intervals.items():
             sorted_intervals = sorted(intervals, key=lambda x: x[0])
             for i in range(len(sorted_intervals) - 1):
@@ -177,7 +205,15 @@ class MetricEvaluator:
 
         return {
             "algorithm": algorithm_name,
+            "is_paper_baseline": is_paper_baseline,
             "total_blocks": total_rows,
+            "integrity": {
+                "passed": integrity_passed,
+                "duplicate_seq_ids": duplicate_seq_count,
+                "missing_seq_ids": missing_seq_count,
+                "invalid_intervals": invalid_intervals_count,
+                "unknown_platens": unknown_platens_count
+            },
             "makespan_days": makespan,
             "delayed_blocks_count": delayed_count,
             "delayed_blocks_pct": delayed_pct,
@@ -202,56 +238,47 @@ if __name__ == "__main__":
     processed_dir = os.path.join(base_dir, "data/processed")
 
     blocks_csv = os.path.join(processed_dir, "featured_blocks.csv")
-    if not os.path.exists(blocks_csv):
-        blocks_csv = os.path.join(data_dir, "block_information.csv")
     platens_csv = os.path.join(processed_dir, "featured_platens.csv")
-    if not os.path.exists(platens_csv):
-        platens_csv = os.path.join(data_dir, "platen_information.csv")
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-    print("=" * 90)
-    print("Unified Metric Evaluation Report across All Baseline and Generated Files")
-    print("=" * 90)
+    print("=" * 105)
+    print("UNIFIED EVALUATION & DATA INTEGRITY AUDIT REPORT")
+    print("=" * 105)
 
-    # 1. Evaluate Research Baseline Files
-    baseline_files = {
-        "EDDQN (Paper Baseline)": os.path.join(data_dir, "eddqn_scheduling_results.csv"),
-        "DDQN (Paper Baseline)": os.path.join(data_dir, "ddqn_scheduling_results.csv"),
-        "EST Heuristic (Paper)": os.path.join(data_dir, "heuristic_est_results.csv"),
-        "LPT Heuristic (Paper)": os.path.join(data_dir, "heuristic_lpt_results.csv"),
-        "SPT Heuristic (Paper)": os.path.join(data_dir, "heuristic_spt_results.csv"),
-        "RUB Heuristic (Paper)": os.path.join(data_dir, "heuristic_resource_utilization_results.csv"),
-        "RTB Heuristic (Paper)": os.path.join(data_dir, "heuristic_response_time_results.csv"),
-    }
+    files = [
+        # (Name, Path, Is Paper Baseline)
+        ("Google OR-Tools CP-SAT (Ours)", os.path.join(processed_dir, "ortools_scheduling_results.csv"), False),
+        ("EST Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_est_results.csv"), False),
+        ("LPT Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_lpt_results.csv"), False),
+        ("SPT Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_spt_results.csv"), False),
+        ("RTB Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_rtb_results.csv"), False),
+        ("RUB Heuristic (Unified Sim)", os.path.join(processed_dir, "heuristic_rub_results.csv"), False),
+        ("PPO Actor-Critic (Ours)", os.path.join(processed_dir, "ppo_scheduling_results.csv"), False),
+        ("EDDQN (Paper Baseline)", os.path.join(data_dir, "eddqn_scheduling_results.csv"), True),
+        ("DDQN (Paper Baseline)", os.path.join(data_dir, "ddqn_scheduling_results.csv"), True),
+    ]
 
-    # 2. Evaluate Newly Generated Files
-    generated_files = {
-        "Google OR-Tools CP-SAT (Ours)": os.path.join(processed_dir, "ortools_scheduling_results.csv"),
-        "Action-Masked DQN (Ours)": os.path.join(processed_dir, "dqn_scheduling_results.csv"),
-        "PPO Actor-Critic (Ours)": os.path.join(processed_dir, "ppo_scheduling_results.csv")
-    }
-
-    results = []
-    all_files = {**baseline_files, **generated_files}
-
-    for name, fpath in all_files.items():
+    rows = []
+    for name, fpath, is_paper in files:
         if os.path.exists(fpath):
             try:
                 df = SafeScheduleReader.load_schedule(fpath)
-                metrics = evaluator.evaluate(df, name)
-                results.append({
+                metrics = evaluator.evaluate(df, name, is_paper_baseline=is_paper)
+                rows.append({
                     "Algorithm": name,
-                    "Makespan (Days)": metrics["makespan_days"],
-                    "Delayed Blocks": f"{metrics['delayed_blocks_count']} ({metrics['delayed_blocks_pct']}%)",
-                    "Avg Delay (Days)": metrics["avg_delay_days_all"],
-                    "Platen Util (%)": metrics["utilization_pct"],
+                    "Category": "Paper Baseline (2D)" if is_paper else "Unified Simulator (Sequential)",
+                    "Blocks": metrics["total_blocks"],
+                    "Integrity": "PASS" if metrics["integrity"]["passed"] else "WARN",
+                    "Makespan (d)": metrics["makespan_days"],
+                    "Delayed (%)": f"{metrics['delayed_blocks_pct']}%",
+                    "Avg Delay (d)": metrics["avg_delay_days_all"],
                     "Violations": metrics["violations"]["total"],
                     "Feasible": "YES" if metrics["is_100pct_feasible"] else "NO"
                 })
             except Exception as e:
-                print(f"Error evaluating {name}: {e}")
+                print(f"Audit error on {name}: {e}")
 
-    df_report = pd.DataFrame(results)
-    print(df_report.to_string(index=False))
-    print("=" * 90)
+    df_out = pd.DataFrame(rows)
+    print(df_out.to_string(index=False))
+    print("=" * 105)
