@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-// FastAPI 백엔드 엔드포인트 URL (포트 8000) ⭐
+// FastAPI 백엔드 엔드포인트 URL (포트 8000) 
 const API_BASE = 'http://localhost:8000';
 
 function App() {
@@ -70,7 +70,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/reload-model`, { method: 'POST' });
       const data = await res.json();
-      alert('✅ MinIO로부터 최신 딥러닝 모델이 성공적으로 핫 리로드되었습니다!');
+      alert(' MinIO로부터 최신 딥러닝 모델이 성공적으로 핫 리로드되었습니다!');
     } catch (err) {
       alert('리로드 실패: ' + err.message);
     }
@@ -81,11 +81,11 @@ function App() {
       {/* 헤더 */}
       <div className="header-section">
         <div className="header-title">
-          <h1>☸️ MLOps AI Real-Time Inference Platform</h1>
-          <p>Kafka ➔ Spark 분산 ETL ➔ MinIO S3 Lake ➔ Keras 딥러닝 ➔ React + FastAPI</p>
+          <h1> MLOps AI Real-Time Inference Platform</h1>
+          <p>Kafka  Spark 분산 ETL  MinIO S3 Lake  Keras 딥러닝  React + FastAPI</p>
         </div>
         <button className="btn-predict" style={{ width: 'auto', padding: '0.6rem 1.2rem', fontSize: '0.9rem' }} onClick={handleReload}>
-          🔄 MinIO 모델 핫 리로드
+           MinIO 모델 핫 리로드
         </button>
       </div>
 
@@ -114,7 +114,7 @@ function App() {
         {/* 입력 폼 */}
         <div className="glass-panel">
           <div className="panel-header">
-            <span>📝 실시간 주문 피처 시뮬레이터</span>
+            <span> 실시간 주문 피처 시뮬레이터</span>
           </div>
 
           <div className="form-group">
@@ -170,14 +170,14 @@ function App() {
           </div>
 
           <button className="btn-predict" onClick={handlePredict} disabled={loading}>
-            {loading ? '🧠 딥러닝 신경망 추론 연산 중...' : '⚡ 실시간 딥러닝 추론 실행'}
+            {loading ? ' 딥러닝 신경망 추론 연산 중...' : ' 실시간 딥러닝 추론 실행'}
           </button>
         </div>
 
         {/* 결과 카드 */}
         <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="panel-header">
-            <span>📊 딥러닝 신경망 판정 결과</span>
+            <span> 딥러닝 신경망 판정 결과</span>
           </div>
 
           <div className="result-card" style={{ flex: 1 }}>
@@ -189,7 +189,7 @@ function App() {
                   {result.decision}
                 </div>
                 <div className="speed-tag">
-                  ⚡ K8s 파드 추론 소요 시간: <strong style={{ color: '#38bdf8' }}>{result.inference_time_ms} ms</strong>
+                   K8s 파드 추론 소요 시간: <strong style={{ color: '#38bdf8' }}>{result.inference_time_ms} ms</strong>
                 </div>
               </>
             ) : (
@@ -205,7 +205,7 @@ function App() {
       {history.length > 0 && (
         <div className="glass-panel">
           <div className="panel-header">
-            <span>🕒 최근 실시간 추론 스트림 이력</span>
+            <span> 최근 실시간 추론 스트림 이력</span>
           </div>
           <table className="history-table">
             <thead>

@@ -113,3 +113,9 @@ agent.md
 .agents/
 .gemini/
 
+
+# Virtual Environments
+samsung_pj2/
+venv/
+.venv/
+

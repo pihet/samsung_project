@@ -32,7 +32,7 @@ with DAG(
         bash_command='echo "=== Starting E-Commerce Order Event Stream on Kubernetes ==="',
     )
 
-    # 2. KubernetesPodOperator: Strimzi Kafka 전용 파드를 띄워 my-topic으로 메시지 보안 발행 ⭐
+    # 2. KubernetesPodOperator: Strimzi Kafka 전용 파드를 띄워 my-topic으로 메시지 보안 발행 
     task_send_to_kafka = KubernetesPodOperator(
         task_id='send_orders_to_kafka',
         namespace='airflow',

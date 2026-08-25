@@ -1,9 +1,9 @@
 # =============================================================================
-# 🚢 삼성중공업 스마트 조선소 MLOps & 정반 배치 최적화 프로젝트 통합 패키지 목록
+#  삼성중공업 스마트 조선소 MLOps & 정반 배치 최적화 프로젝트 통합 패키지 목록
 # (데이터 파이프라인 + 딥러닝/수리최적화/강화학습 + MinIO S3 + FastAPI 웹 서빙)
 # =============================================================================
 
-# 1. 🧠 Deep Learning & Reinforcement Learning & Optimization
+# 1.  Deep Learning & Reinforcement Learning & Optimization
 tensorflow>=2.16.1          # Keras 3.x / 심층 신경망 모델링
 keras>=3.0.0                # 멀티 백엔드 고수준 딥러닝 프레임워크
 torch>=2.2.0                # PyTorch 딥러닝 & 강화학습 연산 엔진 (CPU)
@@ -16,7 +16,7 @@ scikit-learn>=1.4.0         # 머신러닝 전처리, 정규화 및 평가 지�
 numpy>=1.26.0               # 고속 벡터 및 행렬 연산
 scipy>=1.12.0               # 과학 계산 및 수치 최적화
 
-# 2. 📦 Data Engineering & Lakehouse & Storage (Kafka, Spark, MinIO, Iceberg)
+# 2.  Data Engineering & Lakehouse & Storage (Kafka, Spark, MinIO, Iceberg)
 pyspark>=3.5.1              # Apache Spark 분산 전처리 및 데이터 엔지니어링
 kafka-python>=2.0.2         # Apache Kafka 실시간 메시지 프로듀서 & 컨슈머
 boto3>=1.34.0               # MinIO (AWS S3 호환) 로컬 스토리지 연동 클라이언트
@@ -27,7 +27,7 @@ pandas>=2.2.0               # 데이터프레임 조작 및 데이터 전처리
 pyarrow>=15.0.0             # Parquet 분산 데이터 레이크 파일 고속 I/O
 openpyxl>=3.1.2             # 엑셀 파일(.xlsx) 읽기/쓰기 지원
 
-# 3. ⚡ High-Performance Web Serving & REST API (FastAPI)
+# 3.  High-Performance Web Serving & REST API (FastAPI)
 fastapi>=0.110.0            # 초고속 비동기 REST API 웹 프레임워크
 uvicorn[standard]>=0.28.0   # ASGI 고성능 프로덕션 웹 서버
 pydantic>=2.6.0             # 데이터 스키마 유효성 검증
@@ -35,7 +35,7 @@ requests>=2.31.0            # 동기 HTTP 요청 클라이언트
 httpx>=0.27.0               # 비동기 HTTP 웹훅 및 테스트 클라이언트
 python-multipart>=0.0.9     # 폼 데이터 파싱 지원
 
-# 4. 📊 Interactive Visualization & MLOps Tracking
+# 4.  Interactive Visualization & MLOps Tracking
 plotly>=5.20.0              # 인터랙티브 2D 정반 배치도 및 동적 간트차트(Gantt Chart)
 matplotlib>=3.8.0           # 정적 그래프 및 시각화
 seaborn>=0.13.0             # 통계형 데이터 시각화

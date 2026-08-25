@@ -13,7 +13,7 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType
 
 def main():
     print("=========================================================")
-    print("🚀 Starting Spark Kafka ➔ MinIO Data Lake Pipeline")
+    print(" Starting Spark Kafka  MinIO Data Lake Pipeline")
     print("=========================================================")
 
     # 1. SparkSession 생성 (MinIO S3A 설정 포함)
@@ -55,10 +55,10 @@ def main():
         .select("data.*") \
         .filter(col("order_id").isNotNull())
 
-    print("\n📦 [1단계] Kafka에서 읽어온 원천 주문 데이터 목록:")
+    print("\n [1단계] Kafka에서 읽어온 원천 주문 데이터 목록:")
     parsed_df.show(truncate=False)
 
-    print("\n👤 [2단계] 고객(User)별 총 구매 금액 및 주문 횟수 분산 집계:")
+    print("\n [2단계] 고객(User)별 총 구매 금액 및 주문 횟수 분산 집계:")
     user_summary = parsed_df.groupBy("user") \
         .agg({"amount": "sum", "order_id": "count"}) \
         .withColumnRenamed("sum(amount)", "total_spent_krw") \
@@ -66,8 +66,8 @@ def main():
         .orderBy(col("total_spent_krw").desc())
     user_summary.show(truncate=False)
 
-    # 5. MinIO 로컬 S3 [features] 버킷에 Parquet 포맷으로 영속 저장 ⭐
-    print("\n💾 [3단계] MinIO 로컬 S3 스토리지(s3a://features/orders)에 Parquet 저장 시작...")
+    # 5. MinIO 로컬 S3 [features] 버킷에 Parquet 포맷으로 영속 저장 
+    print("\n [3단계] MinIO 로컬 S3 스토리지(s3a://features/orders)에 Parquet 저장 시작...")
     
     parsed_df.write \
         .mode("overwrite") \
@@ -78,7 +78,7 @@ def main():
         .parquet("s3a://features/user_summary")
 
     print("=========================================================")
-    print("✅ All Spark Data Successfully Saved to MinIO S3 (features Bucket)!")
+    print(" All Spark Data Successfully Saved to MinIO S3 (features Bucket)!")
     print("=========================================================")
 
     spark.stop()

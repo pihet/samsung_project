@@ -27,7 +27,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# 🌐 React 프론트엔드 연동을 위한 CORS 허용 설정 ⭐
+#  React 프론트엔드 연동을 위한 CORS 허용 설정 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -65,11 +65,11 @@ def load_latest_model():
     meta_key = "model_meta.json"
     local_model_path = "/tmp/order_predictor.keras"
 
-    print(f"🔄 Fetching latest model from MinIO [s3://{bucket_name}/{model_key}]...")
+    print(f" Fetching latest model from MinIO [s3://{bucket_name}/{model_key}]...")
     try:
         s3_client.download_file(bucket_name, model_key, local_model_path)
         MODEL = keras.models.load_model(local_model_path)
-        print("✅ Keras Deep Learning Model loaded successfully into memory!")
+        print(" Keras Deep Learning Model loaded successfully into memory!")
 
         # 메타데이터 다운로드
         try:
@@ -81,7 +81,7 @@ def load_latest_model():
         LAST_LOADED_TIME = time.strftime("%Y-%m-%d %H:%M:%S")
         return True
     except Exception as e:
-        print(f"⚠️ Warning: Failed to load model from MinIO: {e}")
+        print(f" Warning: Failed to load model from MinIO: {e}")
         MODEL = keras.Sequential([
             keras.layers.Input(shape=(4,)),
             keras.layers.Dense(32, activation="relu"),
@@ -97,7 +97,7 @@ def startup_event():
     load_latest_model()
 
 # ==========================================
-# 📊 Pydantic 요청/응답 스키마
+#  Pydantic 요청/응답 스키마
 # ==========================================
 class PredictionRequest(BaseModel):
     amount: float = Field(..., example=2500000, description="주문 금액 (KRW)")
@@ -113,7 +113,7 @@ class PredictionResponse(BaseModel):
     model_version: str
 
 # ==========================================
-# 🚀 REST API 엔드포인트
+#  REST API 엔드포인트
 # ==========================================
 @app.get("/health")
 def health_check():

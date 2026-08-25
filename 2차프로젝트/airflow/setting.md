@@ -1,10 +1,10 @@
-# 🌪️ Apache Airflow on Kubernetes 빠른 시작 가이드 (setting.md)
+#  Apache Airflow on Kubernetes 빠른 시작 가이드 (setting.md)
 
 이 문서는 처음 시작하는 사람도 **위에서부터 순서대로 명령어를 복사해서 터미널에 붙여넣기만 하면 100% 동일하게 동작**하도록 작성된 실전 구축 가이드입니다.
 
 ---
 
-## 📋 0. 사전 준비 (Minikube 기동)
+##  0. 사전 준비 (Minikube 기동)
 
 ```bash
 # Minikube 클러스터 기동
@@ -13,7 +13,7 @@ minikube start --driver=docker --cpus=6 --memory=12288
 
 ---
 
-## 🛠️ Step 1. 공식 Helm 저장소 등록
+##  Step 1. 공식 Helm 저장소 등록
 
 ```bash
 # 1. 아파치 에어플로우 공식 레포지토리 추가
@@ -25,7 +25,7 @@ helm repo update
 
 ---
 
-## 📝 Step 2. 로컬 최적화 `values.yaml` 생성 (Git-Sync 자동 동기화 포함 ⭐)
+##  Step 2. 로컬 최적화 `values.yaml` 생성 (Git-Sync 자동 동기화 포함 )
 
 Airflow를 가볍고 강력한 **`KubernetesExecutor`**와 **`Git-Sync`** 방식으로 돌리기 위한 설정 파일입니다.
 
@@ -39,7 +39,7 @@ cd ~/workspace/k8s_study/airflow
 ```yaml
 # airflow/values.yaml
 
-# 1. 실행 엔진: KubernetesExecutor (태스크마다 K8s 파드를 동적으로 띄워 실행 ⭐)
+# 1. 실행 엔진: KubernetesExecutor (태스크마다 K8s 파드를 동적으로 띄워 실행 )
 executor: "KubernetesExecutor"
 
 # 2. 불필요한 데몬 비활성화 (메모리 절약)
@@ -70,27 +70,27 @@ postgresql:
   persistence:
     size: 5Gi
 
-# 6. 로그 저장용 영구 볼륨 (워커 파드가 삭제되어도 웹 UI에서 로그 영구 보존 ⭐)
+# 6. 로그 저장용 영구 볼륨 (워커 파드가 삭제되어도 웹 UI에서 로그 영구 보존 )
 logs:
   persistence:
     enabled: true
     size: 2Gi
 
-# 7. 파이썬 DAG 파일 Git-Sync 자동 동기화 ⭐ (persistence 대신 emptyDir로 모든 파드에 git-sync 사이드카 연동)
+# 7. 파이썬 DAG 파일 Git-Sync 자동 동기화  (persistence 대신 emptyDir로 모든 파드에 git-sync 사이드카 연동)
 dags:
   persistence:
     enabled: false
   gitSync:
     enabled: true
-    repo: "https://github.com/pihet/k8s_study.git"   # 👈 내 깃 저장소 주소
+    repo: "https://github.com/pihet/k8s_study.git"   #  내 깃 저장소 주소
     branch: "main"
-    subPath: "airflow/dags"                           # 👈 깃 저장소 내 DAG 폴더 경로
-    wait: 30                                          # 👈 30초마다 GitHub 자동 동기화!
+    subPath: "airflow/dags"                           #  깃 저장소 내 DAG 폴더 경로
+    wait: 30                                          #  30초마다 GitHub 자동 동기화!
 ```
 
 ---
 
-## 🚀 Step 3. Airflow 클러스터 최초 배포 및 갱신
+##  Step 3. Airflow 클러스터 최초 배포 및 갱신
 
 ```bash
 # 1. 최초 배포 시 (create-namespace 포함)
@@ -102,7 +102,7 @@ helm upgrade airflow apache-airflow/airflow --namespace airflow -f values.yaml
 
 ---
 
-## ⏳ Step 4. 배포 완료 확인 및 웹 UI 접속
+##  Step 4. 배포 완료 확인 및 웹 UI 접속
 
 ```bash
 # 1. 파드 기동 상태 실시간 관찰 (약 1~2분 소요, 모두 Running 될 때까지 대기)
@@ -115,17 +115,17 @@ kubectl get pods -n airflow -w
 > - `airflow-api-server-xxxx` (1/1 Running)
 > - `airflow-dag-processor-xxxx` (3/3 Running - git-sync 포함)
 
-### 🌐 웹 브라우저 접속 (포트포워딩)
+###  웹 브라우저 접속 (포트포워딩)
 ```bash
 # Airflow 웹 UI 포트포워딩 실행 (8081 포트로 실행)
 kubectl port-forward -n airflow svc/airflow-api-server 8081:8080
 ```
-> 🌐 **웹 접속:** 브라우저에서 [`http://localhost:8081`](http://localhost:8081) 접속  
-> 🔑 **로그인:** ID: **`admin`** / PW: **`admin`**
+>  **웹 접속:** 브라우저에서 [`http://localhost:8081`](http://localhost:8081) 접속  
+>  **로그인:** ID: **`admin`** / PW: **`admin`**
 
 ---
 
-## 📜 Step 5. 파이썬 DAG 작성 & Git Push (0-Click 자동 반영)
+##  Step 5. 파이썬 DAG 작성 & Git Push (0-Click 자동 반영)
 
 `airflow/dags/hello_k8s_dag.py` 파일을 로컬에서 작성합니다:
 
@@ -173,17 +173,17 @@ with DAG(
     task_start >> task_python >> task_end
 ```
 
-### 🚀 Git Push만 하면 끝! (수동 cp 필요 없음)
+###  Git Push만 하면 끝! (수동 cp 필요 없음)
 ```bash
 git add airflow/dags/hello_k8s_dag.py
 git commit -m "feat: add hello_k8s_dag"
 git push origin main
 ```
-> 👉 `git push` 후 약 30초가 지나면 Airflow `git-sync`가 자동으로 깃허브에서 코드를 땡겨와 웹 UI에 즉시 반영합니다!
+>  `git push` 후 약 30초가 지나면 Airflow `git-sync`가 자동으로 깃허브에서 코드를 땡겨와 웹 UI에 즉시 반영합니다!
 
 ---
 
-## 🎯 Step 6. DAG 실행 & KubernetesExecutor 일꾼 파드 관찰
+##  Step 6. DAG 실행 & KubernetesExecutor 일꾼 파드 관찰
 
 1. Airflow 웹 UI([`http://localhost:8081`](http://localhost:8081))의 **`Dags`** 메뉴에서 **`hello_kubernetes_dag`** 클릭.
 2. 좌측 상단 **토글 스위치를 `ON`**으로 켜고, 우측 상단 **`Trigger DAG` (▶ 재생 버튼)** 클릭.
@@ -193,7 +193,7 @@ git push origin main
 
 ---
 
-## 🛠️ 자주 쓰는 실무 Airflow 명령어 치트시트 (Cheatsheet)
+##  자주 쓰는 실무 Airflow 명령어 치트시트 (Cheatsheet)
 
 ### 1. 파드 및 상태 진단
 ```bash
@@ -212,7 +212,7 @@ kubectl logs -n airflow -l component=scheduler -c scheduler --tail=50
 # 등록된 전체 DAG 목록 확인
 kubectl exec -n airflow deploy/airflow-scheduler -c scheduler -- airflow dags list
 
-# DAG 문법 에러(Import Error) 확인 (대시보드에 안 뜰 때 1순위 확인!) ⭐
+# DAG 문법 에러(Import Error) 확인 (대시보드에 안 뜰 때 1순위 확인!) 
 kubectl exec -n airflow deploy/airflow-scheduler -c scheduler -- airflow dags list-import-errors
 
 # 특정 태스크 단독 테스트 실행 (스케줄러 없이 즉시 실행 테스트)

@@ -19,7 +19,7 @@ default_args = {
     'email': ['wjdcks524@naver.com'],       # 실패/성공 알림을 받을 이메일 주소
     'email_on_failure': False,              # 작업 실패 시 이메일 발송 여부
     'email_on_retry': False,                # 재시도 시 이메일 발송 여부
-    'retries': 2,                           # 작업 실패 시 최대 재시도 횟수 (실무 필수 ⭐)
+    'retries': 2,                           # 작업 실패 시 최대 재시도 횟수 (실무 필수 )
     'retry_delay': timedelta(minutes=1),    # 재시도 전 대기 시간 (1분 후 재시도)
     'execution_timeout': timedelta(minutes=10), # 태스크가 무한 루프에 빠져 서버를 마비시키는 것을 방지 (10분 초과 시 강제 종료)
 }
@@ -61,7 +61,7 @@ with DAG(
         bash_command='echo "=== Airflow on Kubernetes Pipeline Started! ==="',
     )
 
-    # [Task 2: PythonOperator] 파이썬 함수 실행 (가장 많이 쓰임 ⭐)
+    # [Task 2: PythonOperator] 파이썬 함수 실행 (가장 많이 쓰임 )
     task_python_process = PythonOperator(
         task_id='run_python_processing',
         python_callable=process_data_logic,
@@ -93,8 +93,8 @@ with DAG(
     # [Task 1] ──► [Task 2]                      ├──► [Task 5: end]
     #                 └──► [Task 4: parallel_b] ──┘
     #
-    # 1번 완료 후 ➔ 2번 실행
-    # 2번 완료 후 ➔ 3번과 4번이 쿠버네티스 파드 2대로 "동시에 병렬(Parallel) 실행!"
-    # 3번과 4번이 둘 다 끝나야 ➔ 최종 5번 실행!
+    # 1번 완료 후  2번 실행
+    # 2번 완료 후  3번과 4번이 쿠버네티스 파드 2대로 "동시에 병렬(Parallel) 실행!"
+    # 3번과 4번이 둘 다 끝나야  최종 5번 실행!
     #
     task_start >> task_python_process >> [task_parallel_a, task_parallel_b] >> task_end

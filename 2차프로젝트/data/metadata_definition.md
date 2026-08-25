@@ -1,4 +1,4 @@
-# 📚 스마트 조선소 정반 배치 데이터셋 메타정의서 (Data Dictionary)
+#  스마트 조선소 정반 배치 데이터셋 메타정의서 (Data Dictionary)
 
 > **프로젝트:** 스마트 조선소 시공간 정반 배치 최적화 (Spatial-Temporal Block Platen Scheduling & Optimization)  
 > **기준 데이터셋:** 총 872개 선박 조립 블록, 66개 조립 정반 작업장, 3,000 에피소드 DRL 학습 로그 및 5대 휴리스틱 벤치마크  
@@ -6,7 +6,7 @@
 
 ---
 
-## 📑 1. 블록 정보 테이블 (`block_information.csv`)
+##  1. 블록 정보 테이블 (`block_information.csv`)
 
 - **설명:** 조선소 대조립 공정에 투입되는 선박 블록(Block)의 물리적 규격, 납기 일정, 공정 소요 기간을 정의한 원천 데이터셋입니다.
 - **총 레코드 수:** 872건
@@ -30,7 +30,7 @@
 
 ---
 
-## 📑 2. 정반 정보 테이블 (`platen_information.csv`)
+##  2. 정반 정보 테이블 (`platen_information.csv`)
 
 - **설명:** 선박 블록이 거치되어 용접 및 조립 작업이 수행되는 옥내/옥외 정반(Platen/Bed)의 물리적 한계 및 작업장 사양을 정의합니다.
 - **총 레코드 수:** 66개 정반
@@ -52,7 +52,7 @@
 
 ---
 
-## 📑 3. 초기 정반 점유 현황 테이블 (`initial_platen_status.csv`)
+##  3. 초기 정반 점유 현황 테이블 (`initial_platen_status.csv`)
 
 - **설명:** 신규 스케줄링 시점 기준, 각 정반에 이미 올라가 작업 중인 기존 블록들의 예상 완료일 현황입니다.
 - **총 레코드 수:** 35개 점유 블록
@@ -68,7 +68,7 @@
 
 ---
 
-## 📑 4. 정반 배치 스케줄링 결과 테이블 (`eddqn_scheduling_results.csv` 등)
+##  4. 정반 배치 스케줄링 결과 테이블 (`eddqn_scheduling_results.csv` 등)
 
 - **설명:** 딥러닝(EDDQN/DDQN) 및 휴리스틱(EST, LPT, SPT 등)이 872개 블록을 66개 정반에 최적 배분한 최종 스케줄링 산출물입니다.
 
@@ -95,7 +95,7 @@
 
 ---
 
-## 📑 5. 딥러닝 강화학습 훈련 로그 테이블 (`eddqn_training_logs.csv` 등)
+##  5. 딥러닝 강화학습 훈련 로그 테이블 (`eddqn_training_logs.csv` 등)
 
 - **설명:** EDDQN / DDQN 심층 강화학습 모델이 3,000 에피소드 동안 학습하면서 수렴해 가는 손실 함수 및 보상 지표 로그입니다.
 
@@ -105,13 +105,13 @@
 | **`makespan`** | Makespan | **총 소요 공기 (Days)** | `Integer` | **872개 전체 블록 조립이 끝나는 최종 완공일 (핵심 최소화 목적함수)** |
 | **`std_dev_workload`** | std_dev_velue | 정반 부하 표준편차 | `Float` | 66개 정반 간의 작업 쏠림 현상 측정 (부하 균등화 지표) |
 | **`avg_reward`** | Average_Reward | 에피소드 평균 보상 | `Float` | 강화학습 신경망의 보상 점수 |
-| **`epsilon`** | Epsilon | 탐험율 (Exploration) | `Float` | 1.0 ➔ 0.05 로 감소하는 $\epsilon$-greedy 탐험 확률 |
+| **`epsilon`** | Epsilon | 탐험율 (Exploration) | `Float` | 1.0  0.05 로 감소하는 $\epsilon$-greedy 탐험 확률 |
 | **`best_makespan_so_far`**| best_makespan_episode| 역대 최저 Makespan | `Integer` | 학습 중 달성한 최단 공기 기록 |
 | **`best_std_dev_so_far`** | best_std_dev_velue_episode| 역대 최저 부하 표준편차| `Float`| 학습 중 달성한 최적 부하 균등도 기록 |
 
 ---
 
-## ⚙️ 6. 수리적 제약조건 & 비즈니스 규칙 (Optimization Constraints)
+##  6. 수리적 제약조건 & 비즈니스 규칙 (Optimization Constraints)
 
 스마트 정반 배치 딥러닝 모델이 반드시 만족해야 하는 4대 절대 제약조건(Hard Constraints)입니다:
 

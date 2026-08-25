@@ -41,21 +41,21 @@ def ensure_bucket_exists(s3_client, bucket_name):
     try:
         s3_client.head_bucket(Bucket=bucket_name)
     except Exception:
-        print(f"📦 Bucket [{bucket_name}] not found. Creating it automatically...")
+        print(f" Bucket [{bucket_name}] not found. Creating it automatically...")
         try:
             s3_client.create_bucket(Bucket=bucket_name)
-            print(f"✅ Created bucket [{bucket_name}] successfully!")
+            print(f" Created bucket [{bucket_name}] successfully!")
         except Exception as e:
-            print(f"⚠️ Warning: Could not create bucket [{bucket_name}]: {e}")
+            print(f" Warning: Could not create bucket [{bucket_name}]: {e}")
 
 def load_parquet_from_minio(s3_client, bucket_name="features", prefix="orders/"):
     """MinIO features 버킷에서 Parquet 데이터들을 읽어와 DataFrame으로 병합"""
     ensure_bucket_exists(s3_client, bucket_name)
-    print(f"📥 Loading Parquet feature data from MinIO [s3://{bucket_name}/{prefix}]...")
+    print(f" Loading Parquet feature data from MinIO [s3://{bucket_name}/{prefix}]...")
     
     response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
     if "Contents" not in response:
-        print("⚠️ No data found in MinIO. Generating synthetic sample dataset for training demo...")
+        print(" No data found in MinIO. Generating synthetic sample dataset for training demo...")
         return pd.DataFrame({
             "order_id": [f"ORD-{i}" for i in range(1000, 1100)],
             "user": [f"user_{i%5}" for i in range(100)],
@@ -73,16 +73,16 @@ def load_parquet_from_minio(s3_client, bucket_name="features", prefix="orders/")
             data_frames.append(df)
 
     if not data_frames:
-        print("⚠️ No parquet files found. Using fallback dataframe...")
+        print(" No parquet files found. Using fallback dataframe...")
         return pd.DataFrame({"amount": [3200000, 450000, 120000], "hour": [12, 14, 18]})
 
     merged_df = pd.concat(data_frames, ignore_index=True)
-    print(f"✅ Successfully loaded {len(merged_df)} rows from MinIO Data Lake!")
+    print(f" Successfully loaded {len(merged_df)} rows from MinIO Data Lake!")
     return merged_df
 
 def build_and_train_model(df):
     """Keras 딥러닝 신경망 모델 구성 및 학습"""
-    print("\n🧠 [Step 2] Building & Training Keras Deep Learning Model...")
+    print("\n [Step 2] Building & Training Keras Deep Learning Model...")
 
     np.random.seed(42)
     tf.random.set_seed(42)
@@ -112,11 +112,11 @@ def build_and_train_model(df):
         metrics=["accuracy"]
     )
 
-    print("\n📋 Model Architecture Summary:")
+    print("\n Model Architecture Summary:")
     model.summary()
 
     # 2. 모델 학습 실행 (10 Epochs)
-    print("\n🚀 Training in progress on CPU...")
+    print("\n Training in progress on CPU...")
     history = model.fit(
         X_norm, y,
         epochs=10,
@@ -126,13 +126,13 @@ def build_and_train_model(df):
     )
 
     final_acc = float(history.history['accuracy'][-1])
-    print(f"\n🎉 Training Finished! Final Training Accuracy: {final_acc*100:.2f}%")
+    print(f"\n Training Finished! Final Training Accuracy: {final_acc*100:.2f}%")
     return model, {"final_accuracy": final_acc, "input_features": 4}
 
 def upload_model_to_minio(s3_client, model, metadata, bucket_name="models"):
     """학습된 Keras 모델 및 메타데이터를 MinIO models 버킷에 업로드"""
     ensure_bucket_exists(s3_client, bucket_name)
-    print(f"\n💾 [Step 3] Uploading Model Artifacts to MinIO [s3://{bucket_name}/]...")
+    print(f"\n [Step 3] Uploading Model Artifacts to MinIO [s3://{bucket_name}/]...")
 
     model_local_path = "/tmp/order_predictor.keras"
     meta_local_path = "/tmp/model_meta.json"
@@ -146,12 +146,12 @@ def upload_model_to_minio(s3_client, model, metadata, bucket_name="models"):
     s3_client.upload_file(model_local_path, bucket_name, "order_predictor.keras")
     s3_client.upload_file(meta_local_path, bucket_name, "model_meta.json")
 
-    print(f"✅ Successfully registered [order_predictor.keras] in MinIO [{bucket_name}] bucket!")
-    print(f"✅ Successfully registered [model_meta.json] in MinIO [{bucket_name}] bucket!")
+    print(f" Successfully registered [order_predictor.keras] in MinIO [{bucket_name}] bucket!")
+    print(f" Successfully registered [model_meta.json] in MinIO [{bucket_name}] bucket!")
 
 def main():
     print("=========================================================")
-    print("🚀 Starting Keras MLOps Model Training Pipeline")
+    print(" Starting Keras MLOps Model Training Pipeline")
     print("=========================================================")
 
     s3_client = get_s3_client()
@@ -160,7 +160,7 @@ def main():
     upload_model_to_minio(s3_client, model, metadata, bucket_name="models")
 
     print("=========================================================")
-    print("🏆 All Deep Learning Training & Registration Succeeded!")
+    print(" All Deep Learning Training & Registration Succeeded!")
     print("=========================================================")
 
 if __name__ == "__main__":

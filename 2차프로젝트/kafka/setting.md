@@ -1,10 +1,10 @@
-# 🚀 Apache Kafka on Kubernetes 빠른 시작 가이드 (setting.md)
+#  Apache Kafka on Kubernetes 빠른 시작 가이드 (setting.md)
 
 이 문서는 처음 시작하는 사람도 **위에서부터 순서대로 명령어를 복사해서 터미널에 붙여넣기만 하면 100% 동일하게 동작**하도록 작성된 실전 구축 가이드입니다.
 
 ---
 
-## 📋 0. 사전 준비 (Minikube 기동)
+##  0. 사전 준비 (Minikube 기동)
 
 ```bash
 # Minikube 클러스터 기동 (권장: 6 CPU, 12GB RAM)
@@ -16,7 +16,7 @@ sync-kube
 
 ---
 
-## 🛠️ Step 1. Strimzi Kafka Operator 설치
+##  Step 1. Strimzi Kafka Operator 설치
 
 Kafka를 쿠버네티스 CRD로 관리해 주는 **Strimzi 오퍼레이터**를 배포합니다.
 
@@ -37,7 +37,7 @@ kubectl get pods -n kafka -l name=strimzi-cluster-operator -w
 
 ---
 
-## 🏛️ Step 2. Kafka 4.3.1 KRaft 고가용성(HA) 클러스터 배포
+##  Step 2. Kafka 4.3.1 KRaft 고가용성(HA) 클러스터 배포
 
 ZooKeeper 없이 **컨트롤러 3대 + 브로커 3대 + SCRAM 보안 자물쇠**가 적용된 6대 노드 클러스터를 배포합니다.
 
@@ -51,7 +51,7 @@ kubectl get pods -n kafka -l app.kubernetes.io/name=kafka -w
 
 ---
 
-## 📊 Step 3. Kafka-UI 웹 대시보드 배포
+##  Step 3. Kafka-UI 웹 대시보드 배포
 
 웹 브라우저에서 토픽과 브로커 상태를 볼 수 있는 **Kafka-UI**를 배포합니다.
 
@@ -65,11 +65,11 @@ kubectl get pods -n kafka -l app=kafka-ui
 # 3. 웹 브라우저 접속을 위한 포트포워딩 실행 (터미널 1개 유지)
 kubectl port-forward -n kafka svc/kafka-ui 8080:8080
 ```
-> 🌐 **웹 접속:** 브라우저에서 [`http://localhost:8080`](http://localhost:8080) 접속
+>  **웹 접속:** 브라우저에서 [`http://localhost:8080`](http://localhost:8080) 접속
 
 ---
 
-## 📜 Step 4. 카프카 토픽(`KafkaTopic`) 생성
+##  Step 4. 카프카 토픽(`KafkaTopic`) 생성
 
 ```bash
 # 1. 'my-topic' (파티션 3개, 복제본 3개) 생성
@@ -81,7 +81,7 @@ kubectl get kafkatopics -n kafka
 
 ---
 
-## 🔐 Step 5. 보안 계정(`KafkaUser`) 생성 & 비밀번호 발급
+##  Step 5. 보안 계정(`KafkaUser`) 생성 & 비밀번호 발급
 
 ```bash
 # 1. SCRAM-SHA-512 인증 계정(my-app-user) 생성
@@ -97,7 +97,7 @@ echo "발급된 비밀번호: $USER_PASS"
 
 ---
 
-## 🧪 Step 6. 메시지 송수신 검증 테스트
+##  Step 6. 메시지 송수신 검증 테스트
 
 ### 1) 실시간 수신 대기 (Consumer)
 새 터미널 창을 열고 컨슈머를 켜둡니다:

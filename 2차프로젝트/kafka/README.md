@@ -4,7 +4,7 @@ Kubernetes(Minikube) 환경에서 **Strimzi Kafka Operator**를 사용하여 Apa
 
 ---
 
-## 📑 목차
+##  목차
 1. [전체 아키텍처 구성](#1-전체-아키텍처-구성)
 2. [Kafka 4.x & Strimzi 버전 선택 가이드](#2-kafka-4x--strimzi-버전-선택-가이드)
 3. [배포 절차 및 매니페스트](#3-배포-절차-및-매니페스트)
@@ -12,7 +12,7 @@ Kubernetes(Minikube) 환경에서 **Strimzi Kafka Operator**를 사용하여 Apa
    - [3-2. Kafka 4.3.1 KRaft 단일 노드 클러스터 배포](#3-2-kafka-431-kraft-단일-노드-클러스터-배포)
    - [3-3. Kafka-UI 웹 대시보드 배포](#3-3-kafka-ui-웹-대시보드-배포)
 4. [외부 접속 및 GUI 모니터링 (OpenLens / Web UI)](#4-외부-접속-및-gui-모니터링-openlens--web-ui)
-5. [🔥 실전 트러블슈팅 케이스 스터디 (Issues & Solutions)](#5--실전-트러블슈팅-케이스-스터디-issues--solutions)
+5. [ 실전 트러블슈팅 케이스 스터디 (Issues & Solutions)](#5--실전-트러블슈팅-케이스-스터디-issues--solutions)
    - [Case 1: Strimzi Operator CrashLoopBackOff (CRD 버전 불일치)](#case-1-strimzi-operator-crashloopbackoff-crd-버전-불일치)
    - [Case 2: Kafka 리스너 수정 시 Validation 에러 (`tls: Required value`)](#case-2-kafka-리스너-수정-시-validation-에러-tls-required-value)
    - [Case 3: OpenLens 연결 실패 (`proxy exited with code: 255`)](#case-3-openlens-연결-실패-proxy-exited-with-code-255)
@@ -331,12 +331,12 @@ kubectl port-forward -n kafka svc/kafka-ui 8080:8080
 - 브라우저 접속: `http://localhost:8080`
 
 ### 2) OpenLens에서 쿠버네티스 & 카프카 리소스 확인
-- **Pod/Deployment**: `Workloads ➔ Pods`에서 상단 네임스페이스를 `kafka`로 선택
-- **Kafka CRD**: 좌측 하단 `Custom Resources` ➔ `kafka.strimzi.io` ➔ `Kafkas`, `KafkaTopics` 확인
+- **Pod/Deployment**: `Workloads  Pods`에서 상단 네임스페이스를 `kafka`로 선택
+- **Kafka CRD**: 좌측 하단 `Custom Resources`  `kafka.strimzi.io`  `Kafkas`, `KafkaTopics` 확인
 
 ---
 
-## 5. 🔥 실전 트러블슈팅 케이스 스터디 (Issues & Solutions)
+## 5.  실전 트러블슈팅 케이스 스터디 (Issues & Solutions)
 
 ### Case 1: Strimzi Operator CrashLoopBackOff (CRD 버전 불일치)
 - **증상**: 오퍼레이터 파드가 `Running`과 `Error`를 반복하며 재시작.
@@ -386,7 +386,7 @@ kubectl port-forward -n kafka svc/kafka-ui 8080:8080
 ---
 
 ### Case 4: OpenLens에서 네임스페이스 선택 후에도 Pod가 빈 화면(0 items)으로 보이는 현상
-- **증상**: Namespaces 테이블에서 `kafka` 체크박스를 선택했음에도 `Workloads ➔ Pods` 화면에 `0 items`로 아무것도 안 뜸.
+- **증상**: Namespaces 테이블에서 `kafka` 체크박스를 선택했음에도 `Workloads  Pods` 화면에 `0 items`로 아무것도 안 뜸.
 - **원인**:
   - 좌측 메뉴 `Namespaces` 테이블의 체크박스는 일괄 작업용 선택일 뿐, 활성 필터가 아님.
   - `Pods` 화면 우측 상단의 `Namespace: default` 드롭다운이 여전히 `default`로 설정되어 있었음.
@@ -415,12 +415,12 @@ kubectl port-forward -n kafka svc/kafka-ui 8080:8080
    - 클러스터를 삭제/재배포할 필요 없이 YAML의 `listeners`, `storage` 등을 수정한 후 `kubectl apply`만 하면 오퍼레이터가 파드를 무중단/안전 롤링 업데이트함.
 2. **쿠버네티스 CRD & Helm의 특성**:
    - Helm은 데이터 손실 위험 방지를 위해 CRD를 자동 업그레이드하지 않으므로, 오퍼레이터 버전업 시 CRD 수동 관리가 필수적임.
-3. **크로스 플랫폼(Linux ➔ Windows) Kubeconfig 관리**:
+3. **크로스 플랫폼(Linux  Windows) Kubeconfig 관리**:
    - 서로 다른 OS 간에 `kubeconfig`를 공유할 때는 파일 경로 대신 `--flatten` 플래그로 인증서 데이터를 임베딩하는 방식이 가장 안전함.
 
 ---
 
-## 7. 🏢 실무 기업들의 카프카 활용 4대 시나리오
+## 7.  실무 기업들의 카프카 활용 4대 시나리오
 
 실제 대규모 기업(쿠팡, 토스, 배달의민족, 넷플릭스 등)에서는 구축된 카프카 인프라를 다음과 같이 활용합니다:
 
@@ -430,6 +430,6 @@ kubectl port-forward -n kafka svc/kafka-ui 8080:8080
    - 결제 완료 이벤트 발행 시 주문, 재고, 배송, 알림 서비스가 카프카를 통해 서로 간섭 없이 독립적으로 처리.
 3. **대규모 실시간 스트리밍 처리 (Spark Streaming / Flink)**
    - 이상 금융거래 탐지(FDS), 실시간 추천 알고리즘, 위치 추적 등 초당 수십만 건의 데이터를 실시간 분석.
-4. **엔터프라이즈 데이터 레이크 수집 (Airflow + Spark ➔ S3 / Data Lake)**
+4. **엔터프라이즈 데이터 레이크 수집 (Airflow + Spark  S3 / Data Lake)**
    - 카프카에 적재된 대용량 원시(Raw) 데이터를 Airflow 스케줄러와 Spark 분산 엔진이 주기적으로 정제하여 데이터 레이크에 저장.
 
