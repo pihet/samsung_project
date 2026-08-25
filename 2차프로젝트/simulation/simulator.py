@@ -3,14 +3,6 @@
 ================================================================================
 Shipyard Platen Discrete Event Simulator Engine (High-Performance Vectorized)
 ================================================================================
-- Optimized with pre-extracted NumPy arrays for sub-millisecond execution (100x speedup).
-- Feature & Reward Ablation Versions:
-  * feature_version="V1": Base physical & calendar features only (engineered dims zeroed).
-  * feature_version="V2": Full feature engineering active.
-  * reward_version="V1": Simple linear delay penalty: R = -1.0 * delay_days.
-  * reward_version="V2": Feature-linked reward (delay penalty + area utilization).
-  * reward_version="V3": Multi-objective structured reward (Feas + Area - Delay^2 - Std + Early).
-================================================================================
 """
 
 import os
@@ -31,12 +23,15 @@ class ShipyardPlatenSimulator:
     ):
         cur_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = os.path.dirname(cur_dir)
-        default_processed_dir = os.path.join(base_dir, "data/processed")
+        features_dir = os.path.join(base_dir, "data/processed/features")
+        processed_dir = os.path.join(base_dir, "data/processed")
         default_standardized_dir = os.path.join(base_dir, "data/standardized")
 
-        # 1. Load Blocks
+        # 1. Load Blocks (Supports features/ folder with fallback)
         if blocks_source is None:
-            blocks_source = os.path.join(default_processed_dir, "featured_blocks.csv")
+            cand1 = os.path.join(features_dir, "featured_blocks.csv")
+            cand2 = os.path.join(processed_dir, "featured_blocks.csv")
+            blocks_source = cand1 if os.path.exists(cand1) else cand2
 
         if isinstance(blocks_source, pd.DataFrame):
             self.df_blocks = blocks_source.copy()
@@ -45,9 +40,11 @@ class ShipyardPlatenSimulator:
         else:
             self.df_blocks = pd.read_csv(blocks_source)
 
-        # 2. Load Platens
+        # 2. Load Platens (Supports features/ folder with fallback)
         if platens_source is None:
-            platens_source = os.path.join(default_processed_dir, "featured_platens.csv")
+            cand1 = os.path.join(features_dir, "featured_platens.csv")
+            cand2 = os.path.join(processed_dir, "featured_platens.csv")
+            platens_source = cand1 if os.path.exists(cand1) else cand2
 
         if isinstance(platens_source, pd.DataFrame):
             self.df_platens = platens_source.copy()
@@ -72,25 +69,20 @@ class ShipyardPlatenSimulator:
         self.reward_version = reward_version
         self.order_by = order_by
 
-        # Ensure seq_id exists
         if 'seq_id' not in self.df_blocks.columns:
             self.df_blocks['seq_id'] = np.arange(len(self.df_blocks))
         if 'seq_id' not in self.df_platens.columns:
             self.df_platens['seq_id'] = np.arange(len(self.df_platens))
 
-        # Calendar calibration
         self._calibrate_calendar()
 
-        # Sorting strategy
         if self.order_by == "est_urgency" and 'est_day' in self.df_blocks.columns and 'urgency_ratio' in self.df_blocks.columns:
             self.df_blocks = self.df_blocks.sort_values(by=['est_day', 'urgency_ratio'], ascending=[True, False]).reset_index(drop=True)
 
         self.num_blocks = len(self.df_blocks)
         self.num_platens = len(self.df_platens)
 
-        # === High-Performance Pre-extracted NumPy Arrays (100x Speedup) ===
         self._pre_extract_numpy_arrays()
-
         self.reset()
 
     def _calibrate_calendar(self):
@@ -108,8 +100,6 @@ class ShipyardPlatenSimulator:
             self.df_blocks['lead_time_days'] = self.df_blocks['processing_time_days']
 
     def _pre_extract_numpy_arrays(self):
-        """Extracts C-contiguous NumPy arrays for lightning fast step/masking loops."""
-        # Block attributes
         b_len = self.df_blocks['length_m'].to_numpy(dtype=np.float32) if 'length_m' in self.df_blocks.columns else self.df_blocks['block_length_m'].to_numpy(dtype=np.float32)
         b_wid = self.df_blocks['width_m'].to_numpy(dtype=np.float32) if 'width_m' in self.df_blocks.columns else self.df_blocks['block_width_m'].to_numpy(dtype=np.float32)
         self.b_max = np.maximum(b_len, b_wid)
@@ -135,7 +125,6 @@ class ShipyardPlatenSimulator:
         cluster_col = 'cluster_id' if 'cluster_id' in self.df_blocks.columns else 'block_cluster'
         self.b_cluster = (self.df_blocks[cluster_col].to_numpy(dtype=np.float32) / 4.0) if cluster_col in self.df_blocks.columns else np.zeros(self.num_blocks, dtype=np.float32)
 
-        # Platen attributes
         p_len = self.df_platens['platen_length_m'].to_numpy(dtype=np.float32)
         p_wid = self.df_platens['platen_width_m'].to_numpy(dtype=np.float32)
         self.p_max = np.maximum(p_len, p_wid)
@@ -143,8 +132,6 @@ class ShipyardPlatenSimulator:
         self.p_cap = self.df_platens['crane_capacity_ton'].to_numpy(dtype=np.float32)
         self.p_area = self.df_platens['platen_area_m2'].to_numpy(dtype=np.float32)
 
-        # Pre-computed feasibility matrix (num_blocks, num_platens) -> Vectorized O(1) Action Masking!
-        # shape: (N, P)
         self.feasibility_matrix = (
             (self.b_max[:, None] <= self.p_max[None, :]) &
             (self.b_min[:, None] <= self.p_min[None, :]) &
@@ -183,7 +170,6 @@ class ShipyardPlatenSimulator:
         return is_feas, "FEASIBLE" if is_feas else "CONSTRAINT_VIOLATION"
 
     def get_action_mask(self, block_idx: Optional[int] = None) -> np.ndarray:
-        """Lightning fast O(1) memory view lookup."""
         if block_idx is None:
             block_idx = self.current_block_idx
         if block_idx >= self.num_blocks:
@@ -254,7 +240,6 @@ class ShipyardPlatenSimulator:
 
         self.platen_available_days[actual_platen_idx] = planned_end
 
-        # Fast reward calculation
         reward = self._calculate_reward_fast(is_requested_feasible, delay_days, early_days, idx, actual_platen_idx) + penalty
         self.total_reward += reward
 
@@ -297,7 +282,7 @@ class ShipyardPlatenSimulator:
         elif self.reward_version == "V2":
             r = 10.0 - float(delay_days) * 2.0 + min(5.0, early_days * 0.2) + area_utilization * 5.0
             return r
-        else: # V3: Multi-objective structured reward
+        else:
             std_avail = float(np.std(self.platen_available_days))
             r = 10.0 - 0.05 * (float(delay_days) ** 2) + 5.0 * area_utilization - 0.05 * std_avail + min(5.0, 0.2 * float(early_days))
             return r
@@ -330,14 +315,11 @@ class ShipyardPlatenSimulator:
             b_cluster
         ]
 
-        # Vectorized platen feature computation
         p_feat_avail = (self.platen_available_days / 1500.0).astype(np.float32)
         p_feat_area = (self.p_area / 800.0).astype(np.float32)
         p_feat_cap = (self.p_cap / 350.0).astype(np.float32)
 
-        # Interleave (66, 3)
         platen_matrix = np.column_stack([p_feat_avail, p_feat_area, p_feat_cap]).flatten()
-
         state_vector = np.concatenate([np.array(block_feature, dtype=np.float32), platen_matrix])
         return state_vector
 

@@ -3,14 +3,6 @@
 ================================================================================
 Reproducible Dynamic Emergency Rush Block Injection Evaluation
 ================================================================================
-- Strictly reproducible evaluation with fixed seeds (random, numpy, torch CPU/CUDA).
-- Deterministic platen occupancy restoration from master schedule.
-- Measures real-time latency, delay metrics, and impact on master schedule for:
-  1. Action-Masked PPO RL
-  2. EST Heuristic Rule
-  3. Google OR-Tools CP-SAT (Marked as N/A - full re-optimization not executed)
-- Saves full execution metadata and block-level allocation details to JSON & CSV.
-================================================================================
 """
 
 import os
@@ -42,14 +34,17 @@ def set_eval_seed(seed: int = 42):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+def get_artifact_path(subfolder: str, filename: str) -> str:
+    c1 = os.path.join(base_dir, f"data/processed/{subfolder}/{filename}")
+    c2 = os.path.join(base_dir, f"data/processed/{filename}")
+    return c1 if os.path.exists(c1) else c2
+
 def get_occupied_platen_state_at_day(master_schedule_csv: str, target_day: int = 100, num_platens: int = 66) -> Tuple[np.ndarray, Dict[int, List[Dict[str, Any]]]]:
-    """Deterministically restores platen occupancy state at target_day from master schedule."""
     platen_avail = np.zeros(num_platens, dtype=np.int32)
     active_schedules = {p: [] for p in range(num_platens)}
 
     if os.path.exists(master_schedule_csv):
         df_master = SafeScheduleReader.load_schedule(master_schedule_csv)
-        # Deterministic sorting
         df_master = df_master.sort_values(
             by=['platen_idx', 'planned_start_day', 'planned_end_day', 'seq_id'],
             ascending=[True, True, True, True]
@@ -72,16 +67,15 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     print(f"REPRODUCIBLE DYNAMIC EMERGENCY EVALUATION (Fixed Seed: {seed})")
     print("=" * 115)
 
-    blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
-    platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
-    master_sched_csv = os.path.join(base_dir, "data/processed/ortools_scheduling_results.csv")
+    blocks_csv = get_artifact_path("features", "featured_blocks.csv")
+    platens_csv = get_artifact_path("features", "featured_platens.csv")
+    master_sched_csv = get_artifact_path("schedules", "ortools_scheduling_results.csv")
     if not os.path.exists(master_sched_csv):
-        master_sched_csv = os.path.join(base_dir, "data/processed/ppo_scheduling_results.csv")
+        master_sched_csv = get_artifact_path("schedules", "ppo_scheduling_results.csv")
 
     df_platens = pd.read_csv(platens_csv).sort_values(by="seq_id").reset_index(drop=True)
     num_platens = len(df_platens)
 
-    # 5 Emergency Rush Blocks with strictly fixed arrival sequence & parameters
     emergency_blocks = [
         {"seq_id": 9001, "block_id": "EMERG_01", "ship_id": "S_RUSH", "length_m": 15.0, "width_m": 12.0, "weight_ton": 70.0, "lead_time_days": 10, "earliest_start_date": "2018-06-01", "due_date": "2018-06-25", "est_day": 100, "due_day": 125, "slack_days": 15, "urgency_ratio": 0.40, "block_type": "FLAT", "cluster_id": 0},
         {"seq_id": 9002, "block_id": "EMERG_02", "ship_id": "S_RUSH", "length_m": 20.0, "width_m": 15.0, "weight_ton": 120.0, "lead_time_days": 14, "earliest_start_date": "2018-06-01", "due_date": "2018-06-25", "est_day": 100, "due_day": 125, "slack_days": 11, "urgency_ratio": 0.56, "block_type": "FLAT", "cluster_id": 1},
@@ -91,19 +85,16 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     ]
     df_emergency = pd.DataFrame(emergency_blocks).sort_values(by="seq_id").reset_index(drop=True)
 
-    # 1. Restore Occupancy State
     base_occupancy, _ = get_occupied_platen_state_at_day(master_sched_csv, target_day=100, num_platens=num_platens)
 
-    # =========================================================================
-    # Evaluation 1: Action-Masked PPO RL
-    # =========================================================================
+    # 1. PPO
     set_eval_seed(seed)
     sim_ppo = ShipyardPlatenSimulator(df_emergency, df_platens, order_by="raw")
     sim_ppo.platen_available_days = base_occupancy.copy()
 
-    ppo_model_path = os.path.join(base_dir, "data/processed/best_rl_model.pth")
+    ppo_model_path = get_artifact_path("models", "best_rl_model.pth")
     if not os.path.exists(ppo_model_path):
-        ppo_model_path = os.path.join(base_dir, "data/processed/ppo_model.pth")
+        ppo_model_path = get_artifact_path("models", "ppo_model.pth")
 
     device = torch.device("cpu")
     ppo_net = MaskedActorCritic(sim_ppo._get_state().shape[0], sim_ppo.num_platens).to(device)
@@ -127,9 +118,7 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     ppo_avg_delay = round(ppo_total_delay / max(1, len(ppo_allocations)), 2)
     ppo_violations = sum(1 for r in ppo_allocations if not r['is_feasible'])
 
-    # =========================================================================
-    # Evaluation 2: EST Heuristic Rule
-    # =========================================================================
+    # 2. EST
     set_eval_seed(seed)
     sim_est = ShipyardPlatenSimulator(df_emergency, df_platens, order_by="raw")
     sim_est.platen_available_days = base_occupancy.copy()
@@ -159,7 +148,6 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     est_avg_delay = round(est_total_delay / max(1, len(est_allocations)), 2)
     est_violations = sum(1 for r in est_allocations if not r['is_feasible'])
 
-    # Comparison Results Table
     comparison_table = [
         {
             "Methodology": "Action-Masked PPO RL (Ours)",
@@ -206,7 +194,9 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
     print(df_comp.to_string(index=False))
     print("=" * 115)
 
-    # Detailed Output Artifact
+    experiments_dir = os.path.join(base_dir, "data/processed/experiments")
+    os.makedirs(experiments_dir, exist_ok=True)
+
     output_artifact = {
         "metadata": {
             "evaluation_seed": seed,
@@ -229,11 +219,11 @@ def evaluate_dynamic_emergency_scenario(seed: int = EVAL_SEED):
         }
     }
 
-    out_json = os.path.join(base_dir, "data/processed/dynamic_scenario_results.json")
+    out_json = os.path.join(experiments_dir, "dynamic_scenario_results.json")
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(output_artifact, f, indent=2)
 
-    out_csv = os.path.join(base_dir, "data/processed/dynamic_scenario_results.csv")
+    out_csv = os.path.join(experiments_dir, "dynamic_scenario_results.csv")
     df_comp.to_csv(out_csv, index=False)
 
     print(f"Saved dynamic scenario artifact to: {out_json}")

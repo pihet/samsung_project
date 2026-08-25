@@ -1,0 +1,5 @@
+Candidate Model,Target Deployment Role,Makespan (Days),Delayed Blocks,Delayed Rate (%),Avg Delay (Days),Platen Util (%),100% Feasible,Total 872-Block Time (s),Decision Latency (ms/block),Training Overhead,MCDA Score (1-10)
+Google OR-Tools CP-SAT,Master Production Optimizer,1210,246,28.21,50.53,29.41,True,18.92,21.697247706422022,0s (Direct Solve),8.55
+EST Heuristic Rule,Operational Safety Fallback,1254,248,28.44,55.8,28.37,True,12.2849,14.088188073394495,0s (Direct Rule),8.38
+Action-Masked PPO RL (Ours),Real-time AI Dispatcher,1371,602,69.04,143.06,25.95,True,0.6481,0.7432339449541284,24.6s (RL Train),7.83
+Action-Masked DQN (Ours),Discrete Value Baseline,5827,835,95.76,1567.43,6.11,True,14.197,16.28096330275229,610.4s (DQN Train),2.14

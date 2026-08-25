@@ -3,11 +3,6 @@
 ================================================================================
 Comprehensive Benchmark Comparison & Performance Visualization
 ================================================================================
-- Dynamically loads measured execution times from benchmark_metrics.json artifact.
-- Distinct Categories:
-  1. Unified Sequential Simulator (1-Block Non-overlapping, 100% Feasible)
-  2. Historical Research Paper Baselines (Figure 10 & 3,000-episode logs reference)
-================================================================================
 """
 
 import os
@@ -23,97 +18,109 @@ sys.path.append(base_dir)
 
 from modeling.eval_metrics import SafeScheduleReader, MetricEvaluator
 
-METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+def get_metrics_json_path():
+    cand1 = os.path.join(base_dir, "data/processed/reports/benchmark_metrics.json")
+    cand2 = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+    return cand1 if os.path.exists(cand1) else cand2
 
 def generate_benchmark_report():
     data_dir = os.path.join(base_dir, "data/standardized")
+    features_dir = os.path.join(base_dir, "data/processed/features")
+    schedules_dir = os.path.join(base_dir, "data/processed/schedules")
+    reports_dir = os.path.join(base_dir, "data/processed/reports")
     processed_dir = os.path.join(base_dir, "data/processed")
+    os.makedirs(reports_dir, exist_ok=True)
 
-    blocks_csv = os.path.join(processed_dir, "featured_blocks.csv")
-    platens_csv = os.path.join(processed_dir, "featured_platens.csv")
+    blocks_csv = os.path.join(features_dir, "featured_blocks.csv") if os.path.exists(os.path.join(features_dir, "featured_blocks.csv")) else os.path.join(processed_dir, "featured_blocks.csv")
+    platens_csv = os.path.join(features_dir, "featured_platens.csv") if os.path.exists(os.path.join(features_dir, "featured_platens.csv")) else os.path.join(processed_dir, "featured_platens.csv")
 
     evaluator = MetricEvaluator(blocks_csv, platens_csv)
 
-    # Load recorded execution times from artifact
     metrics_store = {}
-    if os.path.exists(METRICS_JSON):
+    metrics_json_path = get_metrics_json_path()
+    if os.path.exists(metrics_json_path):
         try:
-            with open(METRICS_JSON, "r", encoding="utf-8") as f:
+            with open(metrics_json_path, "r", encoding="utf-8") as f:
                 metrics_store = json.load(f)
         except Exception:
             metrics_store = {}
 
-    # Target algorithms registry
+    def find_csv(filename: str) -> str:
+        c1 = os.path.join(schedules_dir, filename)
+        c2 = os.path.join(processed_dir, filename)
+        c3 = os.path.join(data_dir, filename)
+        if os.path.exists(c1): return c1
+        if os.path.exists(c2): return c2
+        return c3
+
     algorithm_registry = [
-        # Unified Simulator Algorithms
         {
             "name": "Google OR-Tools CP-SAT (Ours)",
             "key": "ortools",
-            "file": os.path.join(processed_dir, "ortools_scheduling_results.csv"),
+            "file": find_csv("ortools_scheduling_results.csv"),
             "category": "Unified Simulator",
             "type": "Mathematical Optimization",
         },
         {
             "name": "EST Heuristic (Unified Sim)",
             "key": "heuristic_est",
-            "file": os.path.join(processed_dir, "heuristic_est_results.csv"),
+            "file": find_csv("heuristic_est_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
         },
         {
             "name": "LPT Heuristic (Unified Sim)",
             "key": "heuristic_lpt",
-            "file": os.path.join(processed_dir, "heuristic_lpt_results.csv"),
+            "file": find_csv("heuristic_lpt_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
         },
         {
             "name": "SPT Heuristic (Unified Sim)",
             "key": "heuristic_spt",
-            "file": os.path.join(processed_dir, "heuristic_spt_results.csv"),
+            "file": find_csv("heuristic_spt_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
         },
         {
             "name": "PPO Actor-Critic (Ours)",
             "key": "ppo",
-            "file": os.path.join(processed_dir, "ppo_scheduling_results.csv"),
+            "file": find_csv("ppo_scheduling_results.csv"),
             "category": "Unified Simulator",
             "type": "Deep Reinforcement Learning",
         },
         {
             "name": "Action-Masked DQN (Ours)",
             "key": "dqn",
-            "file": os.path.join(processed_dir, "dqn_scheduling_results.csv"),
+            "file": find_csv("dqn_scheduling_results.csv"),
             "category": "Unified Simulator",
             "type": "Deep Reinforcement Learning",
         },
         {
             "name": "RTB Heuristic (Unified Sim)",
             "key": "heuristic_rtb",
-            "file": os.path.join(processed_dir, "heuristic_rtb_results.csv"),
+            "file": find_csv("heuristic_rtb_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
         },
         {
             "name": "RUB Heuristic (Unified Sim)",
             "key": "heuristic_rub",
-            "file": os.path.join(processed_dir, "heuristic_rub_results.csv"),
+            "file": find_csv("heuristic_rub_results.csv"),
             "category": "Unified Simulator",
             "type": "Rule-based Heuristic",
         },
-        # Research Paper Historical Reference Baselines
         {
             "name": "EDDQN (Paper Baseline)",
             "key": "paper_eddqn",
-            "file": os.path.join(data_dir, "eddqn_scheduling_results.csv"),
+            "file": find_csv("eddqn_scheduling_results.csv"),
             "category": "Paper Baseline (2D)",
             "type": "Research Paper Baseline",
         },
         {
             "name": "DDQN (Paper Baseline)",
             "key": "paper_ddqn",
-            "file": os.path.join(data_dir, "ddqn_scheduling_results.csv"),
+            "file": find_csv("ddqn_scheduling_results.csv"),
             "category": "Paper Baseline (2D)",
             "type": "Research Paper Baseline",
         }
@@ -132,7 +139,6 @@ def generate_benchmark_report():
             is_paper = (item["category"] == "Paper Baseline (2D)")
             metrics = evaluator.evaluate(df_sched, item["name"], is_paper_baseline=is_paper)
             
-            # Resolve measured execution time from artifact
             key = item.get("key", "")
             if is_paper:
                 compute_time_str = "Historical Ref (3000 eps)"
@@ -162,7 +168,6 @@ def generate_benchmark_report():
     df_report = pd.DataFrame(valid_results)
     total_evaluated = len(df_report)
 
-    # 1. Print Unified Simulator Leaderboard
     df_unified = df_report[df_report["Category"] == "Unified Simulator"].sort_values(by="Makespan (Days)").reset_index(drop=True)
     df_unified.insert(0, "Rank", np.arange(1, len(df_unified) + 1))
 
@@ -171,7 +176,6 @@ def generate_benchmark_report():
     print("=" * 115)
     print(df_unified.to_string(index=False))
 
-    # 2. Print Research Paper Reference Baselines
     df_paper = df_report[df_report["Category"] == "Paper Baseline (2D)"].sort_values(by="Makespan (Days)").reset_index(drop=True)
     print("\n" + "=" * 115)
     print(f"HISTORICAL RESEARCH PAPER BASELINES ({len(df_paper)} ALGORITHMS - FIGURE 10 REFERENCE)")
@@ -179,7 +183,6 @@ def generate_benchmark_report():
     print(df_paper.to_string(index=False))
     print("=" * 115)
 
-    # 3. Generate Publication-Grade Comparison Chart
     try:
         plt.figure(figsize=(12, 6))
         df_plot = df_report.sort_values(by="Makespan (Days)", ascending=False).reset_index(drop=True)
@@ -187,9 +190,9 @@ def generate_benchmark_report():
         colors = []
         for cat in df_plot["Category"]:
             if cat == "Unified Simulator":
-                colors.append("#10b981") # Emerald Green
+                colors.append("#10b981")
             else:
-                colors.append("#64748b") # Slate Gray
+                colors.append("#64748b")
                 
         bars = plt.barh(df_plot["Algorithm"], df_plot["Makespan (Days)"], color=colors, height=0.6)
         plt.xlabel("Makespan (Days, Lower is Better)", fontsize=11, fontweight="bold")
@@ -208,7 +211,7 @@ def generate_benchmark_report():
         plt.legend(handles=legend_elements, loc="lower right", frameon=True)
 
         plt.tight_layout()
-        chart_path = os.path.join(processed_dir, "algorithm_benchmark_comparison.png")
+        chart_path = os.path.join(reports_dir, "algorithm_benchmark_comparison.png")
         plt.savefig(chart_path, dpi=300)
         print(f"\nSaved updated benchmark chart to: {chart_path}")
     except Exception as e:

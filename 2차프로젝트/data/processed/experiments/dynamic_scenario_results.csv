@@ -1,4 +1,4 @@
 Methodology,Role,5-Block Allocation Time,Per-Block Average Latency,Delayed Rush Blocks,Total Rush Delay Days,Avg Rush Delay Days,Constraint Violations,Master Blocks Modified,Master Additional Delay,Feasible
-Action-Masked PPO RL (Ours),Real-time AI Dispatcher,8.27 ms,1.655 ms/blk,5 / 5 (100%),2141 d,428.2 d,0 건,0 (Appended to Platen Queue),0 d,YES (100%)
-EST Heuristic Rule,Rule-based Fallback,1.43 ms,0.286 ms/blk,5 / 5 (100%),2078 d,415.6 d,0 건,0 (Appended to Platen Queue),0 d,YES (100%)
+Action-Masked PPO RL (Ours),Real-time AI Dispatcher,8.31 ms,1.662 ms/blk,5 / 5 (100%),2141 d,428.2 d,0 건,0 (Appended to Platen Queue),0 d,YES (100%)
+EST Heuristic Rule,Rule-based Fallback,0.79 ms,0.159 ms/blk,5 / 5 (100%),2078 d,415.6 d,0 건,0 (Appended to Platen Queue),0 d,YES (100%)
 Google OR-Tools CP-SAT,Master Production Optimizer,N/A - full re-optimization not executed,N/A,N/A,N/A,N/A,N/A,N/A,N/A,N/A
