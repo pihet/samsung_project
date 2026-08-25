@@ -4,7 +4,9 @@
 Google OR-Tools CP-SAT Rolling Horizon Mathematical Optimization Solver
 ================================================================================
 - Measures exact execution time using time.perf_counter() and logs to benchmark_metrics.json.
-- Guarantees 100% constraint feasibility & strict data integrity across all 872 blocks.
+- Aligned Infeasibility Handling:
+  If a block cannot fit in any platen physically, it is explicitly excluded from the CP-SAT model
+  and recorded as INFEASIBLE_REJECTED (is_feasible=False), matching the simulator.
 ================================================================================
 """
 
@@ -49,24 +51,29 @@ def solve_window_cpsat(
     num_blocks = len(df_window)
     num_platens = len(df_platens)
 
+    # 1. Physical Feasibility Pre-Filtering
     feasible_platens = {}
-    largest_platens_idx = df_platens.sort_values(by=['platen_area_m2', 'crane_capacity_ton'], ascending=[False, False]).index.tolist()[:5]
+    infeasible_blocks_idx = []
 
     for b_i in range(num_blocks):
         b = df_window.iloc[b_i]
         b_max, b_min = max(b['length_m'], b['width_m']), min(b['length_m'], b['width_m'])
+        b_wt = float(b['weight_ton'])
         
         v_list = []
         for p_i in range(num_platens):
             p = df_platens.iloc[p_i]
             p_max, p_min = max(p['platen_length_m'], p['platen_width_m']), min(p['platen_length_m'], p['platen_width_m'])
-            if b_max <= p_max and b_min <= p_min and b['weight_ton'] <= p['crane_capacity_ton']:
+            if b_max <= p_max and b_min <= p_min and b_wt <= p['crane_capacity_ton']:
                 v_list.append(p_i)
         
-        if not v_list:
-            v_list = largest_platens_idx
-        feasible_platens[b_i] = v_list
+        if len(v_list) > 0:
+            feasible_platens[b_i] = v_list
+        else:
+            # Globally infeasible block -> Record for explicit rejection
+            infeasible_blocks_idx.append(b_i)
 
+    # 2. Build CP-SAT Model for Feasible Blocks Only
     min_est = int(df_window['est_day'].min())
     max_duration_sum = int(df_window['lead_time_days'].sum())
     horizon = int(max(np.max(platen_start_times), min_est) + max_duration_sum + 300)
@@ -77,7 +84,7 @@ def solve_window_cpsat(
     platen_intervals = {p_i: [] for p_i in range(num_platens)}
     assignment_lits = {}
 
-    for b_i in range(num_blocks):
+    for b_i, v_list in feasible_platens.items():
         b = df_window.iloc[b_i]
         est_d = int(b['est_day'])
         due_d = int(b['due_day'])
@@ -95,7 +102,7 @@ def solve_window_cpsat(
         delay_vars[b_i] = delay_var
 
         presence_lits = []
-        for p_i in feasible_platens[b_i]:
+        for p_i in v_list:
             lit = model.NewBoolVar(f"assign_w_b{b_i}_p{p_i}")
             presence_lits.append(lit)
             assignment_lits[(b_i, p_i)] = lit
@@ -115,20 +122,45 @@ def solve_window_cpsat(
         if platen_intervals[p_i]:
             model.AddNoOverlap(platen_intervals[p_i])
 
-    total_delay_expr = sum(delay_vars.values())
-    total_end_expr = sum(end_vars.values())
-    model.Minimize(15 * total_delay_expr + total_end_expr)
+    if delay_vars:
+        total_delay_expr = sum(delay_vars.values())
+        total_end_expr = sum(end_vars.values())
+        model.Minimize(15 * total_delay_expr + total_end_expr)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(time_limit_per_window)
     solver.parameters.num_workers = 8
-    status = solver.Solve(model)
+    
+    if feasible_platens:
+        status = solver.Solve(model)
+    else:
+        status = cp_model.INFEASIBLE
 
     new_platen_times = np.copy(platen_start_times)
     window_results = []
 
+    # Process Infeasible Blocks (Explicit Rejection)
+    for b_i in infeasible_blocks_idx:
+        b = df_window.iloc[b_i]
+        window_results.append({
+            "seq_id": int(b['seq_id']),
+            "block_id": b['block_id'],
+            "ship_id": b['ship_id'],
+            "platen_idx": -1,
+            "platen_id": "NONE",
+            "platen_name": "INFEASIBLE_REJECTED",
+            "planned_start_day": -1,
+            "planned_end_day": -1,
+            "due_date_day": int(b['due_day']),
+            "delay_days": 9999,
+            "processing_time_days": int(b['lead_time_days']),
+            "is_feasible": False,
+            "status": "INFEASIBLE_REJECTED"
+        })
+
+    # Process Feasible Blocks
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        for b_i in range(num_blocks):
+        for b_i in feasible_platens:
             b = df_window.iloc[b_i]
             s_d = solver.Value(start_vars[b_i])
             e_d = solver.Value(end_vars[b_i])
@@ -154,10 +186,13 @@ def solve_window_cpsat(
                 "planned_end_day": e_d,
                 "due_date_day": int(b['due_day']),
                 "delay_days": del_d,
-                "processing_time_days": int(b['lead_time_days'])
+                "processing_time_days": int(b['lead_time_days']),
+                "is_feasible": True,
+                "status": "ALLOCATED"
             })
     else:
-        for b_i in range(num_blocks):
+        # Fallback Greedy for feasible blocks
+        for b_i in feasible_platens:
             b = df_window.iloc[b_i]
             est_d = int(b['est_day'])
             duration = int(b['lead_time_days'])
@@ -187,9 +222,13 @@ def solve_window_cpsat(
                 "planned_end_day": e_d,
                 "due_date_day": due_d,
                 "delay_days": del_d,
-                "processing_time_days": duration
+                "processing_time_days": duration,
+                "is_feasible": True,
+                "status": "ALLOCATED"
             })
 
+    # Sort window results by seq_id order for clean recordkeeping
+    window_results = sorted(window_results, key=lambda x: x['seq_id'])
     return window_results, new_platen_times
 
 def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window: float = 1.0) -> Dict[str, Any]:
@@ -230,7 +269,7 @@ def run_ortools_platen_optimization(window_size: int = 50, time_limit_per_window
         all_results.extend(w_res)
         print(f"   [Window {w_idx+1:>2}/{num_windows}] Blocks {start_idx:>3}~{end_idx:>3} CP-SAT Solved ({elapsed:>4.2f}s) | Makespan: {int(np.max(platen_times))}d")
 
-    total_solve_time = round(time.perf_counter() - t_start, 2)
+    total_solve_time = round(time.perf_counter() - t_start, 4)
 
     df_out = pd.DataFrame(all_results)
     out_csv = os.path.join(base_dir, "data/processed/ortools_scheduling_results.csv")

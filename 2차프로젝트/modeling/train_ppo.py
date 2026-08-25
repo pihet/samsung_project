@@ -1,37 +1,52 @@
 # modeling/train_ppo.py
 """
 ================================================================================
-Action-Masked Proximal Policy Optimization (PPO) Reinforcement Learning Engine
+Action-Masked Proximal Policy Optimization (PPO) for Shipyard Platen Scheduling
 ================================================================================
-- Features:
-  1. Softmax Action Masking over 66 Platens (guarantees 100% spatial/crane feasibility).
-  2. GAE (Generalized Advantage Estimation) with Value Function Baseline.
-  3. Strict Evaluation Protocol: Greedy masked inference matching eval_metrics.py.
-  4. Preserves unique `seq_id` (0..871) in final schedule output.
+- Measures exact inference and training times using time.perf_counter() and logs to benchmark_metrics.json.
+- Guarantees 100% physical feasibility using action masking and safe simulator.
 ================================================================================
 """
 
 import os
 import sys
 import time
-from typing import Dict, Any, List, Tuple
+import json
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
+import gymnasium as gym
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 base_dir = os.path.dirname(cur_dir)
 sys.path.append(base_dir)
 sys.path.append(os.path.join(base_dir, "simulation"))
 
+from simulation.simulator import ShipyardPlatenSimulator
 from simulation.gym_env import ShipyardPlatenGymEnv
 from modeling.eval_metrics import MetricEvaluator
 
+METRICS_JSON = os.path.join(base_dir, "data/processed/benchmark_metrics.json")
+
+def update_metrics_json(algo_key: str, data: Dict[str, Any]):
+    os.makedirs(os.path.dirname(METRICS_JSON), exist_ok=True)
+    metrics_store = {}
+    if os.path.exists(METRICS_JSON):
+        try:
+            with open(METRICS_JSON, "r", encoding="utf-8") as f:
+                metrics_store = json.load(f)
+        except Exception:
+            metrics_store = {}
+    metrics_store[algo_key] = data
+    with open(METRICS_JSON, "w", encoding="utf-8") as f:
+        json.dump(metrics_store, f, indent=2)
+
 class MaskedActorCritic(nn.Module):
-    def __init__(self, state_dim: int = 208, action_dim: int = 66):
+    def __init__(self, state_dim: int, action_dim: int):
         super(MaskedActorCritic, self).__init__()
         # Shared Feature Extractor
         self.shared = nn.Sequential(
@@ -63,15 +78,18 @@ class MaskedActorCritic(nn.Module):
 
     def get_action(self, state: torch.Tensor, mask: torch.Tensor) -> Tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
         logits, value = self.forward(state)
-        # Apply action masking
         masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
         dist = Categorical(logits=masked_logits)
         action = dist.sample()
         return action.item(), dist.log_prob(action), dist.entropy(), value.squeeze(-1)
 
-    def get_greedy_action(self, state: torch.Tensor, mask: torch.Tensor) -> int:
+    def get_eval_action(self, state: torch.Tensor, mask: torch.Tensor, temperature: float = 0.5) -> int:
         logits, _ = self.forward(state)
         masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
+        if temperature > 0:
+            probs = torch.softmax(masked_logits / temperature, dim=-1)
+            dist = Categorical(probs=probs)
+            return dist.sample().item()
         return torch.argmax(masked_logits).item()
 
 class PPOTrainer:
@@ -130,7 +148,7 @@ class PPOTrainer:
         returns = []
         advantages = []
         gae = 0
-        values.append(0) # Terminal value
+        values.append(0)
 
         for step in reversed(range(len(rewards))):
             delta = rewards[step] + self.gamma * values[step + 1] * (1 - dones[step]) - values[step]
@@ -147,7 +165,7 @@ class PPOTrainer:
         advantages_t = (advantages_t - advantages_t.mean()) / (advantages_t.std() + 1e-8)
         masks_t = torch.BoolTensor(np.array(masks)).to(self.device)
 
-        for _ in range(4): # 4 Epochs
+        for _ in range(4):
             logits, curr_values = self.ac_net(states_t)
             masked_logits = torch.where(masks_t, logits, torch.tensor(-1e9, device=self.device))
             dist = Categorical(logits=masked_logits)
@@ -170,8 +188,10 @@ class PPOTrainer:
         metrics = self.env.simulator.get_summary_metrics()
         return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
 
-    def evaluate_and_save(self) -> Dict[str, Any]:
-        """Greedy evaluation using trained policy with 100% feasibility."""
+    def evaluate_and_save(self, training_time_sec: float = 0.0) -> Dict[str, Any]:
+        """Inference evaluation using action-masked policy with exact time measurement."""
+        t_eval_start = time.perf_counter()
+
         obs, info = self.env.reset()
         terminated = False
         self.ac_net.eval()
@@ -182,11 +202,13 @@ class PPOTrainer:
             mask_t = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
-                action = self.ac_net.get_greedy_action(state_t, mask_t)
+                action = self.ac_net.get_eval_action(state_t, mask_t, temperature=0.5)
 
             next_obs, _, terminated, _, next_info = self.env.step(action)
             obs = next_obs
             info = next_info
+
+        eval_inference_time = round(time.perf_counter() - t_eval_start, 4)
 
         df_out = pd.DataFrame(self.env.simulator.allocation_history)
         out_csv = os.path.join(base_dir, "data/processed/ppo_scheduling_results.csv")
@@ -198,27 +220,36 @@ class PPOTrainer:
         blocks_csv = os.path.join(base_dir, "data/processed/featured_blocks.csv")
         platens_csv = os.path.join(base_dir, "data/processed/featured_platens.csv")
         evaluator = MetricEvaluator(blocks_csv, platens_csv)
-        eval_res = evaluator.evaluate(df_out, "PPO Actor-Critic")
+        eval_res = evaluator.evaluate(df_out, "PPO Actor-Critic (Ours)")
 
-        return eval_res
+        update_metrics_json("ppo", {
+            "algorithm": "PPO Actor-Critic (Ours)",
+            "compute_time_sec": eval_inference_time,
+            "training_time_sec": round(training_time_sec, 2),
+            "makespan_days": eval_res["makespan_days"],
+            "delayed_blocks": eval_res["delayed_blocks_count"],
+            "timestamp": time.time()
+        })
 
-def train_ppo_pipeline(episodes: int = 50):
+        return eval_res, eval_inference_time
+
+def train_ppo_pipeline(episodes: int = 30):
     print("=" * 80)
     print(f"Training Action-Masked PPO for {episodes} Episodes")
     print("=" * 80)
 
     trainer = PPOTrainer(lr=3e-4, reward_version="V2")
-    start_t = time.time()
+    t_train_start = time.perf_counter()
 
     for ep in range(1, episodes + 1):
         r, m, d = trainer.train_episode()
         if ep % 10 == 0 or ep == 1:
             print(f"   [Episode {ep:>3}/{episodes}] Reward: {r:>8.1f} | Makespan: {m:>4}d | Delayed: {d:>3}/872")
 
-    elapsed = round(time.time() - start_t, 2)
-    print(f"\nPPO Training Complete ({elapsed}s). Running Greedy Evaluation...")
+    training_time = time.perf_counter() - t_train_start
+    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Evaluation...")
 
-    eval_res = trainer.evaluate_and_save()
+    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time)
     print("=" * 80)
     print("PPO Actor-Critic Final Evaluation Results")
     print("=" * 80)
@@ -226,9 +257,11 @@ def train_ppo_pipeline(episodes: int = 50):
     print(f"   Delayed Blocks: {eval_res['delayed_blocks_count']} / 872 ({eval_res['delayed_blocks_pct']}%)")
     print(f"   Average Delay: {eval_res['avg_delay_days_all']} Days")
     print(f"   Platen Utilization: {eval_res['utilization_pct']} %")
+    print(f"   Integrity: {'PASS' if eval_res['integrity']['passed'] else 'FAIL'}")
     print(f"   Constraint Violations: {eval_res['violations']['total']}")
     print(f"   100% Feasible: {eval_res['is_100pct_feasible']}")
+    print(f"   Inference Time: {eval_time:.4f}s (Logged to benchmark_metrics.json)")
     print("=" * 80)
 
 if __name__ == "__main__":
-    train_ppo_pipeline(episodes=50)
+    train_ppo_pipeline(episodes=30)
