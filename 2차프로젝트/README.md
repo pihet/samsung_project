@@ -26,7 +26,7 @@
 
 ### 3대 핵심 차별점
 1. **재현 가능한 수리 최적화 마스터 플래너 (Google OR-Tools CP-SAT)**: 50개 블록 단위 Rolling-window CP-SAT과 결정론적 파라미터(`max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42`)를 적용하여 정기 마스터 일정을 안정적으로 수립하고 100% SHA-256 일치 재현성을 확보.
-2. **초고속 고신뢰 실시간 규칙 디스패처 (EST Rule)**: 긴급 블록 유입 시 0.14ms/block의 초고속 속도와 최소 지연(2,122일)으로 100% 제약을 준수하는 운영 기본 실시간 디스패처.
+2. **초고속 고신뢰 실시간 규칙 디스패처 (EST Rule)**: 긴급 블록 유입 시 초고속 의사결정과 최소 지연으로 100% 물리 제약을 준수하는 운영 기본 실시간 디스패처.
 3. **정책 개선 검증용 AI Shadow Mode (Action-Masked PPO)**: 정반 208차원 상태 벡터와 유효 행동 마스킹을 결합하여 밀리초 단위 정책 추론 가능성을 확인하고, 향후 데이터 증강 학습 후 운영 전환을 검토하는 Shadow Mode 후보.
 
 ---
@@ -35,32 +35,46 @@
 
 ```mermaid
 flowchart TD
-    subgraph Storage ["1. Data Lakehouse & Lake Storage"]
-        RawData[(Raw CSV / Parquet)] --> MinIO[(MinIO Object Storage)]
-        MinIO --> Iceberg[(Apache Iceberg Data Lakehouse)]
+    MES["MES / 생산계획 시스템"] --> Kafka["Apache Kafka (이벤트 브로커)"]
+
+    subgraph BatchTrack ["배치 트랙 (정기 마스터 플래닝)"]
+        Kafka --> MinIO_Raw["MinIO (Raw Data Landing)"]
+        MinIO_Raw --> Iceberg["Apache Iceberg (Lakehouse Table)"]
+        Iceberg --> Spark["Apache Spark (Feature Engineering)"]
+        Spark --> FeatureTable["Feature Table"]
+        FeatureTable --> Airflow["Apache Airflow (오케스트레이션)"]
+        Airflow --> OR_Tools["Google OR-Tools CP-SAT (Master Schedule)"]
+        OR_Tools --> Postgres["PostgreSQL (운영 스케줄 DB)"]
+        OR_Tools --> MinIO_Sched["MinIO (이력/결과 저장)"]
+        Postgres --> React_Master["React (간트 차트 대시보드)"]
     end
 
-    subgraph BatchPipeline ["2. Batch Master Optimization (Airflow & Spark)"]
-        Iceberg --> Spark[Apache Spark Feature Engineering]
-        Spark --> ProcessedFeatures[Featured Blocks & Platens]
-        ProcessedFeatures --> Airflow[Apache Airflow DAG]
-        Airflow --> CP_SAT["Google OR-Tools CP-SAT Solver<br/>(Rolling-Window Master Schedule)"]
-        CP_SAT --> ScheduleDB[(PostgreSQL / MinIO Schedules)]
-    end
-
-    subgraph Serving ["3. Real-time Event Serving (FastAPI & Kafka)"]
-        Kafka[Kafka Emergency Event Stream] --> FastAPI[FastAPI Serving Engine]
-        FastAPI --> EST["EST Primary Rule Dispatcher<br/>(~0.14 ms/block, 100% Production Default)"]
-        FastAPI -. Shadow Mode .-> PPO["Action-Masked PPO AI Candidate<br/>(~1.86 ms/block, Policy Validation)"]
-        EST --> Response[Optimal Platen Response]
-        PPO -. Shadow Logging .-> Evaluation[(Model Monitoring / Comparison)]
-    end
-
-    subgraph Dashboard ["4. Production Monitoring Dashboard"]
-        ScheduleDB --> React[React / Tailwind / Recharts UI]
-        Response --> React
+    subgraph StreamTrack ["실시간 스트리밍 트랙 (긴급 이벤트 대응)"]
+        Kafka --> Flink["Apache Flink (실시간 정제/물리 제약 사전 검증)"]
+        Flink --> FastAPI["FastAPI Event API"]
+        FastAPI --> EST["EST Heuristic (Production Default)"]
+        FastAPI -. Shadow Mode .-> PPO["Action-Masked PPO (AI Shadow Candidate)"]
+        EST --> React_Realtime["React (실시간 배정 현황판)"]
+        PPO --> MLflow["MLflow (모델 모니터링 & 추론 로깅)"]
+        MLflow --> React_Monitor["React (AI 모델 성능 뷰)"]
     end
 ```
+
+### 아키텍처 주요 구성 요소 및 역할 분담
+
+1. **배치 트랙 (Master Batch Track)**:
+   - `Kafka` $\rightarrow$ `MinIO` $\rightarrow$ `Apache Iceberg`: 대규모 원천 데이터의 안전한 저장 및 ACID 트랜잭션/타임트래블 지원.
+   - `Apache Spark`: 대규모 블록/정반 피처 엔지니어링 및 Feature Table 생성.
+   - `Apache Airflow`: 야간 정기 배치 오케스트레이션.
+   - `Google OR-Tools CP-SAT`: Rolling-window 기반 872개 전체 블록 마스터 공정표 수립.
+   - `PostgreSQL & MinIO`: 웹 조회를 위한 고속 인덱싱 RDBMS 및 결과 아티팩트 영구 보존.
+   - `React`: 마스터 공정표(간트 차트) 및 정반별 점유율 모니터링.
+
+2. **실시간 스트리밍 트랙 (Real-time Streaming Track)**:
+   - `Apache Flink`: Kafka에서 유입되는 긴급 블록 및 크레인 장애 이벤트를 초저지연으로 수신하고, 결측치 정제 및 4대 물리 제약 사전 유효성을 검증.
+   - `FastAPI Event API`: Flink가 정제한 이벤트를 수신하여 디스패칭 엔진 호출.
+   - `EST Heuristic (Production Default)`: 실제 운영 환경에서 즉각적인 정반 슬롯 배정을 전담하는 메인 디스패처.
+   - `Action-Masked PPO (Shadow Mode)`: 백그라운드에서 동시 추론을 수행하고, 추론 메트릭과 정책 결정을 `MLflow`에 로깅하여 모델 드리프트 및 성능을 모니터링.
 
 ---
 
@@ -156,7 +170,7 @@ flowchart TD
 
 ### 정직한 평가 및 운영 전략 결론
 - **운영 방침**: 긴급 블록 유입 시 **EST를 운영 기본 규칙 기반 디스패처로 사용**하고, **PPO는 정책 개선 효과를 검증하기 위한 AI 추천·Shadow Mode 후보로 운영**합니다.
-- **PPO 운영 전환 조건**: PPO는 제약을 만족하는 밀리초 단위(1.86ms) 정책 추론 가능성을 확인했으나, 현재 학습 범위에서는 EST보다 동적 재배치 품질(총 지연 3,023일 vs 2,122일)과 속도(9.30ms vs 0.67ms) 모두 우수하지 않았습니다. 따라서 PPO의 메인 운영 전환은 돌발 이벤트를 포함한 학습 데이터 증강(Curriculum RL) 및 파인튜닝 후 EST 대비 품질·속도 재검증을 통과한 경우에만 검토합니다.
+- **PPO 운영 전환 조건**: PPO는 제약을 만족하는 밀리초 단위 정책 추론 가능성을 확인했으나, 현재 학습 범위에서는 EST보다 동적 재배치 품질(총 지연 3,023일 vs 2,122일)과 속도(9.30ms vs 0.67ms) 모두 우수하지 않았습니다. 따라서 PPO의 메인 운영 전환은 돌발 이벤트를 포함한 학습 데이터 증강(Curriculum RL) 및 파인튜닝 후 EST 대비 품질·속도 재검증을 통과한 경우에만 검토합니다.
 
 ---
 
@@ -177,7 +191,7 @@ $$
 
 ### 하이브리드 운영 전략
 1. **야간 정기 마스터 플래닝**: Google OR-Tools CP-SAT이 872개 전체 마스터 스케줄을 일괄 수립합니다.
-2. **주간 실시간 긴급 운영**: 긴급 블록 유입 시 **EST Heuristic이 0.14ms/block의 초고속 속도로 실시간 메인 디스패칭**을 담당합니다.
+2. **주간 실시간 긴급 운영**: 긴급 블록 유입 시 **EST Heuristic이 초고속 속도로 실시간 메인 디스패칭**을 담당합니다.
 3. **AI 정책 검증 (Shadow Mode)**: Action-Masked PPO 모델은 백그라운드 Shadow Mode로 동시 추론 결과를 로깅하며, 향후 돌발 이벤트 증강 학습을 통해 EST 대비 품질 검증 완료 후 단계적 승격을 검토합니다.
 
 ---
