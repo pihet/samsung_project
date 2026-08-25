@@ -97,6 +97,15 @@ class MaskedActorCritic(nn.Module):
         masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
         return torch.argmax(masked_logits).item()
 
+    def get_eval_action(self, state: torch.Tensor, mask: torch.Tensor, temperature: float = 0.5) -> int:
+        logits, _ = self.forward(state)
+        masked_logits = torch.where(mask, logits, torch.tensor(-1e9, device=state.device))
+        if temperature > 0.0:
+            probs = torch.softmax(masked_logits / temperature, dim=-1)
+            dist = Categorical(probs=probs)
+            return dist.sample().item()
+        return torch.argmax(masked_logits).item()
+
 class PPOTrainer:
     def __init__(
         self,
@@ -105,7 +114,7 @@ class PPOTrainer:
         gae_lambda: float = 0.95,
         clip_ratio: float = 0.2,
         value_coef: float = 0.5,
-        entropy_coef: float = 0.01,
+        entropy_coef: float = 0.05,
         feature_version: str = "V2",
         reward_version: str = "V2",
         seed: int = 42
@@ -198,8 +207,8 @@ class PPOTrainer:
         metrics = self.env.simulator.get_summary_metrics()
         return metrics["total_reward"], metrics["makespan"], metrics["delayed_blocks"]
 
-    def evaluate_and_save(self, training_time_sec: float = 0.0, save_name: str = "ppo") -> Tuple[Dict[str, Any], float]:
-        """Strict greedy evaluation with exact time measurement."""
+    def evaluate_and_save(self, training_time_sec: float = 0.0, save_name: str = "ppo", temperature: float = 0.5) -> Tuple[Dict[str, Any], float]:
+        """Evaluation with exact time measurement."""
         t_eval_start = time.perf_counter()
 
         obs, info = self.env.reset(seed=self.seed)
@@ -212,7 +221,7 @@ class PPOTrainer:
             mask_t = torch.BoolTensor(mask).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
-                action = self.ac_net.get_greedy_action(state_t, mask_t)
+                action = self.ac_net.get_eval_action(state_t, mask_t, temperature=temperature)
 
             next_obs, _, terminated, _, next_info = self.env.step(action)
             obs = next_obs
@@ -251,7 +260,7 @@ def train_ppo_pipeline(episodes: int = 30, seed: int = 42, feature_version: str 
     print(f"Training Action-Masked PPO for {episodes} Episodes (Seed: {seed}, Feat: {feature_version}, Reward: {reward_version})")
     print("=" * 80)
 
-    trainer = PPOTrainer(lr=3e-4, feature_version=feature_version, reward_version=reward_version, seed=seed)
+    trainer = PPOTrainer(lr=3e-4, entropy_coef=0.05, feature_version=feature_version, reward_version=reward_version, seed=seed)
     t_train_start = time.perf_counter()
 
     for ep in range(1, episodes + 1):
@@ -260,9 +269,9 @@ def train_ppo_pipeline(episodes: int = 30, seed: int = 42, feature_version: str 
             print(f"   [Episode {ep:>3}/{episodes}] Reward: {r:>8.1f} | Makespan: {m:>4}d | Delayed: {d:>3}/872")
 
     training_time = time.perf_counter() - t_train_start
-    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Strict Greedy Evaluation...")
+    print(f"\nPPO Training Complete ({training_time:.2f}s). Running Evaluation...")
 
-    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time, save_name="ppo")
+    eval_res, eval_time = trainer.evaluate_and_save(training_time_sec=training_time, save_name="ppo", temperature=0.5)
     print("=" * 80)
     print("PPO Actor-Critic Final Evaluation Results")
     print("=" * 80)

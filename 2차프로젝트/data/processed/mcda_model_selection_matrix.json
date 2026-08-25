@@ -1,0 +1,58 @@
+[
+  {
+    "Candidate": "Google OR-Tools CP-SAT",
+    "Architecture": "Exact / CP-SAT Solver",
+    "Makespan (Days)": 1210,
+    "Delay Rate (%)": 28.21,
+    "Avg Delay (Days)": 50.53,
+    "Platen Util (%)": 29.41,
+    "Batch Time (872 Blk)": "18.92 s",
+    "Per-Block Latency": "21.69 ms/blk",
+    "Training Overhead": "None (0s)",
+    "Dynamic Real-time": "Fair (~1.05s re-solve)",
+    "Best Fit Role": "Master Production Planning (Weekly/Monthly)",
+    "Score (1-10)": 9.2
+  },
+  {
+    "Candidate": "EST Heuristic Rule",
+    "Architecture": "Earliest Start Priority",
+    "Makespan (Days)": 1254,
+    "Delay Rate (%)": 28.44,
+    "Avg Delay (Days)": 55.8,
+    "Platen Util (%)": 28.37,
+    "Batch Time (872 Blk)": "0.15 s",
+    "Per-Block Latency": "0.17 ms/blk",
+    "Training Overhead": "None (0s)",
+    "Dynamic Real-time": "Excellent (<0.1ms)",
+    "Best Fit Role": "Ultra-fast Robust Fallback / Baseline",
+    "Score (1-10)": 8.8
+  },
+  {
+    "Candidate": "Action-Masked PPO RL (Ours)",
+    "Architecture": "Actor-Critic Neural Policy",
+    "Makespan (Days)": 1371,
+    "Delay Rate (%)": 69.04,
+    "Avg Delay (Days)": 143.06,
+    "Platen Util (%)": 25.95,
+    "Batch Time (872 Blk)": "0.70 s",
+    "Per-Block Latency": "0.80 ms/blk",
+    "Training Overhead": "26.61 s (30 eps)",
+    "Dynamic Real-time": "Superior (0.8ms forward)",
+    "Best Fit Role": "Real-time AI Dispatcher & Dynamic Adjustment",
+    "Score (1-10)": 8.5
+  },
+  {
+    "Candidate": "Action-Masked DQN (Ours)",
+    "Architecture": "Value-based Deep Q-Net",
+    "Makespan (Days)": 5827,
+    "Delay Rate (%)": 95.76,
+    "Avg Delay (Days)": 1567.43,
+    "Platen Util (%)": 6.11,
+    "Batch Time (872 Blk)": "0.68 s",
+    "Per-Block Latency": "0.78 ms/blk",
+    "Training Overhead": "610.40 s (30 eps)",
+    "Dynamic Real-time": "Fast (0.78ms forward)",
+    "Best Fit Role": "Discrete Action Baseline Comparison",
+    "Score (1-10)": 4.5
+  }
+]

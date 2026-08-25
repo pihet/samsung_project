@@ -1,0 +1,10 @@
+Version,Feature_Ver,Reward_Ver,Seed,Makespan (Days),Delayed Blocks,Delayed (%),Avg Delay (Days),Platen Util (%),Violations,Feasible,Integrity,Train Time (s),Inference Time (s)
+V1 (Vanilla Baseline),V1,V1,42,19438,864,99.08,8569.14,1.83,0,YES,PASS,28.34,0.4747
+V1 (Vanilla Baseline),V1,V1,100,17180,854,97.94,6914.85,2.07,0,YES,PASS,25.81,0.4437
+V1 (Vanilla Baseline),V1,V1,2024,13199,862,98.85,4475.72,2.7,0,YES,PASS,25.59,0.3764
+V2 (Feature Engineering),V2,V1,42,17529,865,99.2,7201.67,2.03,0,YES,PASS,26.26,0.4368
+V2 (Feature Engineering),V2,V1,100,14551,856,98.17,5480.12,2.45,0,YES,PASS,24.05,0.4063
+V2 (Feature Engineering),V2,V1,2024,17180,860,98.62,6833.26,2.07,0,YES,PASS,27.92,0.5434
+V3 (Reward Engineering),V2,V3,42,16045,860,98.62,6151.33,2.22,0,YES,PASS,28.67,0.5259
+V3 (Reward Engineering),V2,V3,100,17180,859,98.51,6833.33,2.07,0,YES,PASS,25.09,0.4374
+V3 (Reward Engineering),V2,V3,2024,17351,864,99.08,7127.97,2.05,0,YES,PASS,26.63,0.4015
