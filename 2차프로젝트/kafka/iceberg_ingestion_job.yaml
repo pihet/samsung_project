@@ -1,0 +1,158 @@
+# kafka/iceberg_ingestion_job.yaml
+# [Kubernetes Job] Kafka -> MinIO Apache Iceberg 레이크하우스 실시간 수집(Ingestion) 잡
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iceberg-ingestion-script
+  namespace: kafka
+data:
+  consumer_to_iceberg.py: |
+    import os
+    import sys
+    import json
+    import time
+    import pandas as pd
+    import pyarrow as pa
+    from kafka import KafkaConsumer
+    from pyiceberg.catalog.sql import SqlCatalog
+
+    # 환경변수
+    KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap.kafka.svc:9092")
+    KAFKA_USER = os.environ.get("KAFKA_USER", "my-app-user")
+    KAFKA_PASSWORD = os.environ.get("KAFKA_PASSWORD", "")
+
+    MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio-service.minio.svc:9000")
+    MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
+    MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin123")
+
+    print("=" * 80)
+    print(" [K8s Ingestion Job] Kafka -> Apache Iceberg 수집 파이프라인 가동")
+    print(f" - Kafka: {KAFKA_BOOTSTRAP}, MinIO: {MINIO_ENDPOINT}")
+    print("=" * 80)
+
+    # 1. Iceberg 카탈로그 연결
+    db_path = "/tmp/iceberg_catalog.db"
+    catalog = SqlCatalog(
+        "lakehouse",
+        uri=f"sqlite:///{db_path}",
+        warehouse="s3://warehouse/iceberg",
+        **{
+            "s3.endpoint": MINIO_ENDPOINT,
+            "s3.access-key-id": MINIO_ACCESS_KEY,
+            "s3.secret-access-key": MINIO_SECRET_KEY,
+            "s3.path-style-access": "true",
+            "s3.region": "us-east-1",
+            "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO"
+        }
+    )
+
+    try:
+        catalog.create_namespace("shipyard")
+    except Exception:
+        pass
+
+    # 2. Kafka 컨슈머 함수 정의
+    def consume_all_messages(topic_name: str, max_records: int = 1500, timeout_ms: int = 4000):
+        print(f"\n[Step 1] Kafka 토픽 '{topic_name}'에서 메시지 수집 중...")
+        consumer = KafkaConsumer(
+            topic_name,
+            bootstrap_servers=KAFKA_BOOTSTRAP,
+            security_protocol="SASL_PLAINTEXT",
+            sasl_mechanism="SCRAM-SHA-512",
+            sasl_plain_username=KAFKA_USER,
+            sasl_plain_password=KAFKA_PASSWORD,
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+            group_id=f"k8s-iceberg-ingestion-{topic_name}-{int(time.time())}",
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            consumer_timeout_ms=timeout_ms
+        )
+        records = []
+        for msg in consumer:
+            records.append(msg.value)
+            if len(records) >= max_records:
+                break
+        consumer.close()
+        print(f" -> 토픽 '{topic_name}'에서 {len(records)}건의 메시지 수집 완료.")
+        return records
+
+    # 3. 정반 데이터 수집 및 Iceberg 테이블 적재
+    platen_msgs = consume_all_messages("shipyard.mes.platens", max_records=100)
+    if platen_msgs:
+        df_platens = pd.DataFrame(platen_msgs)
+        for col in ["platen_length_m", "platen_width_m", "platen_area_m2", "crane_capacity_ton"]:
+            if col in df_platens.columns:
+                df_platens[col] = pd.to_numeric(df_platens[col], errors="coerce")
+        arrow_platens = pa.Table.from_pandas(df_platens)
+        
+        if catalog.table_exists("shipyard.platens"):
+            catalog.drop_table("shipyard.platens")
+        table_platens = catalog.create_table("shipyard.platens", schema=arrow_platens.schema)
+        table_platens.append(arrow_platens)
+        print(f" -> [shipyard.platens] Iceberg 적재 성공 ({len(df_platens)}건, Snapshot ID: {table_platens.current_snapshot().snapshot_id})")
+
+    # 4. 블록 데이터 수집 및 Iceberg 테이블 적재
+    block_msgs = consume_all_messages("shipyard.mes.blocks", max_records=1000)
+    if block_msgs:
+        df_blocks = pd.DataFrame(block_msgs)
+        for col in ["length_m", "width_m", "weight_ton", "lead_time_days"]:
+            if col in df_blocks.columns:
+                df_blocks[col] = pd.to_numeric(df_blocks[col], errors="coerce")
+        arrow_blocks = pa.Table.from_pandas(df_blocks)
+        
+        if catalog.table_exists("shipyard.blocks"):
+            catalog.drop_table("shipyard.blocks")
+        table_blocks = catalog.create_table("shipyard.blocks", schema=arrow_blocks.schema)
+        table_blocks.append(arrow_blocks)
+        print(f" -> [shipyard.blocks] Iceberg 적재 성공 ({len(df_blocks)}건, Snapshot ID: {table_blocks.current_snapshot().snapshot_id})")
+
+    print("\n" + "=" * 80)
+    print(" [완료] Kafka -> MinIO Apache Iceberg 실시간 수집 및 스냅샷 커밋 100% 완료!")
+    print("=" * 80)
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iceberg-ingestion-job
+  namespace: kafka
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      name: iceberg-ingestion-job
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: consumer
+          image: python:3.11-slim
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install --no-cache-dir kafka-python pyiceberg sqlalchemy pyarrow pandas boto3
+              python /scripts/consumer_to_iceberg.py
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-cluster-kafka-bootstrap.kafka.svc:9092"
+            - name: KAFKA_USER
+              value: "my-app-user"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: my-app-user
+                  key: password
+            - name: MINIO_ENDPOINT
+              value: "http://minio-service.minio.svc:9000"
+            - name: MINIO_ACCESS_KEY
+              value: "minioadmin"
+            - name: MINIO_SECRET_KEY
+              value: "minioadmin123"
+          volumeMounts:
+            - name: script-vol
+              mountPath: /scripts
+      volumes:
+        - name: script-vol
+          configMap:
+            name: iceberg-ingestion-script

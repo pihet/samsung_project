@@ -6,8 +6,8 @@
    - 조선소 MES(제조실행시스템)에서 발행되는 원천 블록 생산 계획 및 정반 마스터 데이터를
      Apache Kafka 이벤트 브로커로 전송(Produce)합니다.
    - 대상 토픽:
-     1) shipyard.mes.blocks  : 872개 블록 사양 및 일정 이벤트
-     2) shipyard.mes.platens : 66개 작업 정반 시설 마스터 이벤트
+     1) shipyard.mes.blocks  : 872개 블록 사양 및 일정 이벤트 (block_information.csv)
+     2) shipyard.mes.platens : 66개 작업 정반 시설 마스터 이벤트 (platen_information.csv)
    - 보안 인증: SASL_PLAINTEXT (SCRAM-SHA-512)
 
 2. 데이터 아키텍처 상의 위치:
@@ -73,11 +73,14 @@ except Exception as e:
         sys.exit(1)
 
 # ==============================================================================
-# 4. 원천 블록 및 정반 데이터 로드
+# 4. 원천 블록 및 정반 데이터 로드 (STANDARDIZED_DIR 기준)
 # ==============================================================================
 print("\n[Step 2/3] MES 원천 표준 데이터셋 로드...")
-blocks_file = os.path.join(STANDARDIZED_DIR, "standardized_blocks.csv")
-platens_file = os.path.join(STANDARDIZED_DIR, "standardized_platens.csv")
+blocks_file = os.path.join(STANDARDIZED_DIR, "block_information.csv")
+platens_file = os.path.join(STANDARDIZED_DIR, "platen_information.csv")
+
+print(f" - 블록 파일 경로: {blocks_file}")
+print(f" - 정반 파일 경로: {platens_file}")
 
 df_blocks = pd.read_csv(blocks_file)
 df_platens = pd.read_csv(platens_file)
