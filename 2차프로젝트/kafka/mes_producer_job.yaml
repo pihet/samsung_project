@@ -1,0 +1,114 @@
+# kafka/mes_producer_job.yaml
+# [Kubernetes Job] MES 원천 블록 및 정반 데이터 Kafka 발행 잡
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mes-producer-script
+  namespace: kafka
+data:
+  producer_mes_blocks.py: |
+    import os
+    import sys
+    import json
+    import time
+    import csv
+    from kafka import KafkaProducer
+
+    KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap.kafka.svc:9092")
+    KAFKA_USER = os.environ.get("KAFKA_USER", "my-app-user")
+    KAFKA_PASSWORD = os.environ.get("KAFKA_PASSWORD", "")
+
+    print("=" * 80)
+    print(" [K8s MES Producer] Kafka 이벤트 브로커 발행 시작")
+    print(f" - Bootstrap: {KAFKA_BOOTSTRAP}, User: {KAFKA_USER}")
+    print("=" * 80)
+
+    # 1. Kafka Producer 연결
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        security_protocol="SASL_PLAINTEXT",
+        sasl_mechanism="SCRAM-SHA-512",
+        sasl_plain_username=KAFKA_USER,
+        sasl_plain_password=KAFKA_PASSWORD,
+        value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+        acks="all",
+        retries=3
+    )
+    print(" -> Kafka 브로커 SCRAM-SHA-512 보안 연결 성공!")
+
+    # 2. 정반 데이터 발행 (shipyard.mes.platens)
+    platens_csv = "/data/platen_information.csv"
+    topic_platens = "shipyard.mes.platens"
+    platen_count = 0
+    with open(platens_csv, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            producer.send(topic_platens, key=str(row.get("platen_id", platen_count)).encode("utf-8"), value=row)
+            platen_count += 1
+    producer.flush()
+    print(f" -> [{topic_platens}] {platen_count}개 정반 마스터 이벤트 발행 완료!")
+
+    # 3. 블록 생산 계획 데이터 발행 (shipyard.mes.blocks)
+    blocks_csv = "/data/block_information.csv"
+    topic_blocks = "shipyard.mes.blocks"
+    block_count = 0
+    with open(blocks_csv, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            producer.send(topic_blocks, key=str(row.get("block_id", block_count)).encode("utf-8"), value=row)
+            block_count += 1
+            if block_count % 200 == 0:
+                print(f"    진행 중: {block_count}개 블록 전송 완료...")
+    producer.flush()
+    print(f" -> [{topic_blocks}] {block_count}개 블록 생산 계획 이벤트 발행 완료!")
+
+    producer.close()
+    print("=" * 80)
+    print(" MES 원천 데이터 Kafka 발행이 100% 완료되었습니다!")
+    print("=" * 80)
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mes-producer-job
+  namespace: kafka
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      name: mes-producer-job
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: producer
+          image: python:3.11-slim
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install --no-cache-dir kafka-python
+              python /scripts/producer_mes_blocks.py
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-cluster-kafka-bootstrap.kafka.svc:9092"
+            - name: KAFKA_USER
+              value: "my-app-user"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: my-app-user
+                  key: password
+          volumeMounts:
+            - name: script-vol
+              mountPath: /scripts
+            - name: data-vol
+              mountPath: /data
+      volumes:
+        - name: script-vol
+          configMap:
+            name: mes-producer-script
+        - name: data-vol
+          configMap:
+            name: mes-data-csv
