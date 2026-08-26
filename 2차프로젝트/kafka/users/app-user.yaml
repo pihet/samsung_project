@@ -11,10 +11,9 @@ spec:
   authorization:
     type: simple
     acls:
-      # Example consumer Acls for topic my-topic using consumer group my-group
       - resource:
           type: topic
-          name: my-topic
+          name: "*"
           patternType: literal
         operations: 
         - All
@@ -23,4 +22,4 @@ spec:
           name: "*"
           patternType: literal
         operations: 
-        - Read
+        - All

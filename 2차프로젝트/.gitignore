@@ -119,3 +119,4 @@ samsung_pj2/
 venv/
 .venv/
 
+*.db

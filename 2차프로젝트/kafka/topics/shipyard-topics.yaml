@@ -1,0 +1,46 @@
+# kafka/topics/shipyard-topics.yaml
+# [Kafka Topics] 조선소 MES 생산계획 및 긴급 이벤트 토픽 매니페스트
+
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: shipyard.mes.blocks
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: "86400000"   # 24시간 보존
+    segment.bytes: "10485760"
+
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: shipyard.mes.platens
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: "86400000"
+    segment.bytes: "10485760"
+
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: shipyard.emergency.blocks
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 3
+  replicas: 3
+  config:
+    retention.ms: "86400000"
+    segment.bytes: "10485760"
