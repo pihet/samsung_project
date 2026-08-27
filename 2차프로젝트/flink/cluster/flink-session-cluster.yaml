@@ -1,24 +1,52 @@
 # flink/cluster/flink-session-cluster.yaml
-# [Kubernetes Deployment] Apache Flink 실시간 분산 스트리밍 클러스터 매니페스트
+# ==============================================================================
+# [Apache Flink on Kubernetes 분산 세션 클러스터 통합 매니페스트]
+# ==============================================================================
+# 1. 아키텍처 구성 요소 (4대 리소스):
+#    1) ConfigMap  : Flink 클러스터 공통 설정 (메모리, 태스크 슬롯 수, 포트, 로깅)
+#    2) Service    : JobManager 내부 통신(RPC 6123) 및 웹 대시보드(UI 8081) 네트워크 노출
+#    3) Deployment : 마스터 노드 (JobManager 1대 - 작업 분배 및 클러스터 총괄)
+#    4) Deployment : 워커 노드 (TaskManager 2대 - 실제 Kafka 컨슘 및 실시간 연산 수행)
+#
+# 2. 총 처리 용량 (Capacity):
+#    - TaskManager(2대) x 슬롯(2개) = 총 4개의 병렬 연산 통로(Available Task Slots: 4)
+# ==============================================================================
 
+# ------------------------------------------------------------------------------
+# [1/4] ConfigMap: Flink 클러스터 공통 환경 설정 (flink-config)
+# ------------------------------------------------------------------------------
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flink-config
   namespace: flink
 data:
+  # 1) Flink 엔진 핵심 설정 파일 (flink-conf.yaml)
   flink-conf.yaml: |
+    # 마스터 노드(JobManager)의 쿠버네티스 서비스 DNS 주소 (워커들이 이 주소로 찾아옴)
     jobmanager.rpc.address: flink-jobmanager
+    
+    # 워커(TaskManager) 파드 1대당 동시에 돌릴 병렬 작업 슬롯 개수 (파드당 2개씩 할당)
     taskmanager.numberOfTaskSlots: 2
-    blob.server.port: 6124
-    jobmanager.rpc.port: 6123
-    taskmanager.rpc.port: 6122
-    taskmanager.data.port: 6121
+    
+    # 내부 통신 포트 정의
+    jobmanager.rpc.port: 6123      # JobManager와 TaskManager 간 제어 명령 통신 포트
+    blob.server.port: 6124         # Jar 파일 및 라이브러리 바이너리 전송 포트
+    taskmanager.rpc.port: 6122     # TaskManager 상태 보고 포트
+    taskmanager.data.port: 6121    # 워커들끼리 대용량 스트림 데이터를 주고받는 데이터 셔플 포트
+    
+    # 메모리 할당 (로컬 Minikube 환경에 맞춰 1GB로 가볍게 최적화)
     jobmanager.memory.process.size: 1024m
     taskmanager.memory.process.size: 1024m
+    
+    # 기본 병렬 처리 수준 (Default Parallelism)
     parallelism.default: 2
+    
+    # Flink Web UI 대시보드 접근 포트 및 바인딩 주소
     rest.port: 8081
     rest.address: 0.0.0.0
+
+  # 2) 콘솔 로그 출력 형식 설정 파일 (log4j-console.properties)
   log4j-console.properties: |
     rootLogger.level = INFO
     rootLogger.appenderRef.console.ref = ConsoleAppender
@@ -26,32 +54,40 @@ data:
     appender.console.type = CONSOLE
     appender.console.layout.type = PatternLayout
     appender.console.layout.pattern = %d{yyyy-MM-dd HH:mm:ss,SSS} %-5p %-60c %x - %m%n
+
 ---
+# ------------------------------------------------------------------------------
+# [2/4] Service: JobManager 네트워크 엔드포인트 노출 (flink-jobmanager)
+# ------------------------------------------------------------------------------
 apiVersion: v1
 kind: Service
 metadata:
   name: flink-jobmanager
   namespace: flink
 spec:
-  type: ClusterIP
+  type: ClusterIP                  # 쿠버네티스 클러스터 내부 전용 가상 IP 생성
   ports:
     - name: rpc
-      port: 6123
+      port: 6123                   # 워커 파드(TaskManager)들이 마스터에 접속하는 RPC 포트
     - name: blob
-      port: 6124
+      port: 6124                   # 프로그램 파일(Jar) 전송 포트
     - name: ui
-      port: 8081
+      port: 8081                   # Flink Web UI 대시보드 포트 (포트포워딩 대상)
   selector:
     app: flink
-    component: jobmanager
+    component: jobmanager          # 레이블이 'app: flink, component: jobmanager'인 파드로 트래픽 전달
+
 ---
+# ------------------------------------------------------------------------------
+# [3/4] Deployment: 마스터 노드 (JobManager 1대 배포)
+# ------------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flink-jobmanager
   namespace: flink
 spec:
-  replicas: 1
+  replicas: 1                      # 마스터(지휘관)는 1대만 기동
   selector:
     matchLabels:
       app: flink
@@ -64,8 +100,8 @@ spec:
     spec:
       containers:
         - name: jobmanager
-          image: flink:1.18.1-scala_2.12-java11
-          args: ["jobmanager"]
+          image: flink:1.18.1-scala_2.12-java11 # 아파치 공식 Flink 1.18 런타임 이미지
+          args: ["jobmanager"]                  # 컨테이너 기동 시 'jobmanager' 모드로 시작
           ports:
             - containerPort: 6123
               name: rpc
@@ -74,10 +110,11 @@ spec:
             - containerPort: 8081
               name: ui
           volumeMounts:
+            # 위에서 정의한 ConfigMap(flink-config)을 Flink 설정 디렉토리에 주입
             - name: flink-config-volume
               mountPath: /opt/flink/conf
           securityContext:
-            runAsUser: 9999
+            runAsUser: 9999                     # Flink 공식 비루트(Non-root) 보안 사용자 실행
       volumes:
         - name: flink-config-volume
           configMap:
@@ -87,14 +124,18 @@ spec:
                 path: flink-conf.yaml
               - key: log4j-console.properties
                 path: log4j-console.properties
+
 ---
+# ------------------------------------------------------------------------------
+# [4/4] Deployment: 워커 노드 (TaskManager 2대 배포)
+# ------------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flink-taskmanager
   namespace: flink
 spec:
-  replicas: 2
+  replicas: 2                      # 실제 일꾼(TaskManager) 파드 2대 기동 (총 4 슬롯)
   selector:
     matchLabels:
       app: flink
@@ -107,18 +148,19 @@ spec:
     spec:
       containers:
         - name: taskmanager
-          image: flink:1.18.1-scala_2.12-java11
-          args: ["taskmanager"]
+          image: flink:1.18.1-scala_2.12-java11 # 동일한 Flink 1.18 이미지 사용
+          args: ["taskmanager"]                 # 컨테이너 기동 시 'taskmanager(일꾼)' 모드로 시작
           ports:
             - containerPort: 6122
               name: rpc
             - containerPort: 6121
               name: data
           volumeMounts:
+            # 워커 파드도 동일한 ConfigMap 설정을 공유하여 마스터(JobManager) 주소를 찾음
             - name: flink-config-volume
               mountPath: /opt/flink/conf
           securityContext:
-            runAsUser: 9999
+            runAsUser: 9999                     # 보안 계정 적용
       volumes:
         - name: flink-config-volume
           configMap:
