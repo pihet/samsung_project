@@ -1,0 +1,115 @@
+# kafka/emergency_producer_job.yaml
+# [Kubernetes Job] 긴급 블록 실시간 스트림 모의 발행 잡
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emergency-producer-script
+  namespace: kafka
+data:
+  producer_emergency_stream.py: |
+    import os
+    import sys
+    import json
+    import time
+    import random
+    from datetime import datetime
+    from kafka import KafkaProducer
+
+    KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap.kafka.svc:9092")
+    KAFKA_USER = os.environ.get("KAFKA_USER", "my-app-user")
+    KAFKA_PASSWORD = os.environ.get("KAFKA_PASSWORD", "")
+    TOPIC_NAME = "shipyard.emergency.blocks"
+
+    print("=" * 80)
+    print(" [K8s Emergency Producer] 조선소 돌발 긴급 블록 실시간 스트림 발행 시작")
+    print(f" - Bootstrap: {KAFKA_BOOTSTRAP}, Topic: {TOPIC_NAME}")
+    print("=" * 80)
+
+    # 1. Kafka Producer 연결
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        security_protocol="SASL_PLAINTEXT",
+        sasl_mechanism="SCRAM-SHA-512",
+        sasl_plain_username=KAFKA_USER,
+        sasl_plain_password=KAFKA_PASSWORD,
+        value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+        acks="all",
+        retries=3
+    )
+    print(" -> Kafka 브로커 SCRAM-SHA-512 보안 연결 성공!")
+
+    # 2. 10개 긴급 블록 이벤트 실시간 발행
+    NUM_EVENTS = 10
+    for i in range(1, NUM_EVENTS + 1):
+        ship_id = random.choice(["H1087", "H1088", "H1089"])
+        block_id = f"EMG_{ship_id}_{i:03d}"
+        length_m = round(random.uniform(12.0, 24.0), 2)
+        width_m = round(random.uniform(8.0, 16.0), 2)
+        weight_ton = round(random.uniform(25.0, 80.0), 1)
+        due_date_day = random.randint(30, 90)
+        processing_days = random.randint(5, 14)
+
+        event = {
+            "event_id": f"EVT-{int(time.time()*1000)}-{i}",
+            "timestamp": datetime.now().isoformat(),
+            "block_id": block_id,
+            "ship_id": ship_id,
+            "length_m": length_m,
+            "width_m": width_m,
+            "area_m2": round(length_m * width_m, 2),
+            "weight_ton": weight_ton,
+            "processing_time_days": processing_days,
+            "due_date_day": due_date_day,
+            "priority_level": "CRITICAL_EMERGENCY",
+            "status": "UNASSIGNED"
+        }
+        producer.send(TOPIC_NAME, key=block_id.encode("utf-8"), value=event)
+        print(f" [발행 {i:02d}/{NUM_EVENTS:02d}] {block_id:<15} | {length_m}m x {width_m}m | {weight_ton}톤 | 납기 Day {due_date_day}")
+        time.sleep(0.3)
+
+    producer.flush()
+    producer.close()
+    print("=" * 80)
+    print(f" 총 {NUM_EVENTS}건의 긴급 블록 이벤트가 '{TOPIC_NAME}' 토픽으로 전송 완료되었습니다!")
+    print("=" * 80)
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: emergency-producer-job
+  namespace: kafka
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      name: emergency-producer-job
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: producer
+          image: python:3.11-slim
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install --no-cache-dir kafka-python
+              python /scripts/producer_emergency_stream.py
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-cluster-kafka-bootstrap.kafka.svc:9092"
+            - name: KAFKA_USER
+              value: "my-app-user"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: my-app-user
+                  key: password
+          volumeMounts:
+            - name: script-vol
+              mountPath: /scripts
+      volumes:
+        - name: script-vol
+          configMap:
+            name: emergency-producer-script
