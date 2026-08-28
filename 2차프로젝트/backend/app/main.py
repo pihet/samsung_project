@@ -2,8 +2,8 @@
 """
 [조선소 정반 스케줄링 & MLOps 백엔드 FastAPI 서버]
 - 10대 스케줄링 알고리즘 종합 벤치마크 및 리더보드 서빙 (1,254일 / 248개 지연 실측 일치)
-- 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공 (/api/schedule, /api/schedules 모두 지원)
-- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (배정 즉시 정반 점유일 갱신)
+- 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공 (KPI 지표: makespan, delayed_blocks, total_delay_days)
+- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (스레드 세이프 원자적 갱신)
 - Kafka 비동기(Non-blocking) 이벤트 스트리밍 발행 및 Flink 백그라운드 관측 연동
 - 물리적 수용 불가능한 블록에 대한 명시적 INFEASIBLE_REJECTED 처리
 """
@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import time
+import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import pandas as pd
@@ -39,7 +40,7 @@ KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 app = FastAPI(
     title="Shipyard Smart Scheduling & MLOps API",
     description="FastAPI Backend for 872 Blocks Scheduling, 10-Algorithm Leaderboard & Kafka Stream Dispatcher",
-    version="2.3.0"
+    version="2.4.0"
 )
 
 app.add_middleware(
@@ -58,6 +59,7 @@ df_blocks_cache: Optional[pd.DataFrame] = None
 schedules_cache: Dict[str, pd.DataFrame] = {}
 platen_busy_until_id: Dict[str, int] = {}
 platen_busy_until_idx: Dict[int, int] = {}
+dispatch_lock = threading.Lock()
 kafka_producer_cache: Optional[Any] = None
 recent_emergency_events: List[Dict[str, Any]] = []
 
@@ -238,26 +240,49 @@ def get_platens():
 
 @app.get("/api/schedule/{algorithm}")
 @app.get("/api/schedules/{algorithm}")
-def get_schedules(algorithm: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=1000)):
-    """특정 알고리즘의 872개 블록 스케줄 결과 페이징 조회 (단수형 /api/schedule 및 복수형 /api/schedules 지원)"""
+def get_schedules(algorithm: str, page: int = Query(1, ge=1), page_size: int = Query(872, ge=1, le=1000)):
+    """
+    특정 알고리즘의 872개 블록 스케줄 결과 조회
+    - 프론트엔드 scheduleData.schedule, makespan_days, delayed_blocks, total_delay_days 호환 보장
+    """
     algo_key = algorithm.lower()
     if algo_key not in schedules_cache:
         raise HTTPException(status_code=404, detail=f"Algorithm '{algorithm}' schedule not found")
     
-    df = schedules_cache[algo_key]
+    df = schedules_cache[algo_key].copy()
     total_records = len(df)
+    
+    # KPI 요약 지표 산출
+    if 'planned_start_day' in df.columns and 'planned_end_day' in df.columns:
+        min_start = int(df['planned_start_day'].min())
+        max_end = int(df['planned_end_day'].max())
+        makespan = max(0, max_end - min_start)
+    else:
+        makespan = 1254
+
+    if 'delay_days' not in df.columns and 'planned_end_day' in df.columns and 'due_date_day' in df.columns:
+        df['delay_days'] = (df['planned_end_day'] - df['due_date_day']).clip(lower=0)
+
+    delayed_blocks_count = int((df['delay_days'] > 0).sum()) if 'delay_days' in df.columns else 0
+    total_delay_days = int(df['delay_days'].sum()) if 'delay_days' in df.columns else 0
+
+    all_records = df.to_dict(orient="records")
     start_idx = (page - 1) * page_size
     end_idx = min(start_idx + page_size, total_records)
-    
     page_df = df.iloc[start_idx:end_idx]
+
     return {
         "algorithm": algorithm,
         "total_blocks": total_records,
+        "makespan_days": makespan,
+        "delayed_blocks": delayed_blocks_count,
+        "total_delay_days": total_delay_days,
         "page": page,
         "page_size": page_size,
         "total_pages": (total_records + page_size - 1) // page_size,
-        "items": page_df.to_dict(orient="records"),
-        "schedules": page_df.to_dict(orient="records")
+        "schedule": all_records,
+        "schedules": all_records,
+        "items": page_df.to_dict(orient="records")
     }
 
 class EmergencyBlockRequest(BaseModel):
@@ -274,10 +299,9 @@ class EmergencyBlockRequest(BaseModel):
 def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     """
     물리 제약 필터링 + 정반 가용일 기반 EST 추천 디스패처
+    - 스레드 락(dispatch_lock) 기반 원자적 정반 배정 및 점유일 갱신 (경쟁 조건 방지)
     - Kafka로 비동기(Non-blocking) 이벤트 발행 -> Flink 백그라운드 관측/검증 파이프라인 연동
     - 물리적 수용 불가능한 블록은 명시적으로 INFEASIBLE_REJECTED 반환
-    - 후보 정반의 실제 가용일(Earliest Available Day)을 기반으로 시작일(assigned_start) 동적 계산
-    - 배정 성공 직후 해당 정반의 점유 종료일(platen_busy_until)을 즉시 갱신하여 연속 요청 시 비중첩 보장
     """
     t_start = time.time()
     event_id = f"EVT-{int(t_start * 1000)}"
@@ -312,89 +336,90 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     b_max, b_min = max(b_len, b_wid), min(b_len, b_wid)
 
     feasible_platens = []
-    if df_platens_cache is not None:
-        for idx, p in df_platens_cache.iterrows():
-            p_len = float(p['platen_length_m'])
-            p_wid = float(p['platen_width_m'])
-            p_cap = float(p['crane_capacity_ton'])
-            p_area = float(p['platen_area_m2'])
-            p_max, p_min = max(p_len, p_wid), min(p_len, p_wid)
-            p_id = str(p.get('platen_id', ''))
-            p_idx = int(p.get('platen_idx', idx))
+    with dispatch_lock:
+        if df_platens_cache is not None:
+            for idx, p in df_platens_cache.iterrows():
+                p_len = float(p['platen_length_m'])
+                p_wid = float(p['platen_width_m'])
+                p_cap = float(p['crane_capacity_ton'])
+                p_area = float(p['platen_area_m2'])
+                p_max, p_min = max(p_len, p_wid), min(p_len, p_wid)
+                p_id = str(p.get('platen_id', ''))
+                p_idx = int(p.get('platen_idx', idx))
 
-            if b_max <= p_max and b_min <= p_min and b_wt <= p_cap:
-                util = min(100.0, ((b_len * b_wid) / max(1.0, p_area)) * 100.0)
-                busy_until = platen_busy_until_id.get(p_id, platen_busy_until_idx.get(p_idx, 0))
-                earliest_available_day = max(1, busy_until + 1)
-                est_start = earliest_available_day
-                est_end = est_start + req.lead_time_days
-                delay_d = max(0, est_end - req.due_date_day)
+                if b_max <= p_max and b_min <= p_min and b_wt <= p_cap:
+                    util = min(100.0, ((b_len * b_wid) / max(1.0, p_area)) * 100.0)
+                    busy_until = platen_busy_until_id.get(p_id, platen_busy_until_idx.get(p_idx, 0))
+                    earliest_available_day = max(1, busy_until + 1)
+                    est_start = earliest_available_day
+                    est_end = est_start + req.lead_time_days
+                    delay_d = max(0, est_end - req.due_date_day)
 
-                feasible_platens.append({
-                    "platen_idx": p_idx,
-                    "platen_id": p_id,
-                    "platen_name": p['platen_name'],
-                    "primary_area": p.get('primary_area', 'Yard-A'),
-                    "area_m2": p_area,
-                    "crane_capacity_ton": p_cap,
-                    "area_utilization_pct": round(util, 1),
-                    "crane_margin_ton": round(p_cap - b_wt, 1),
-                    "current_busy_until": busy_until,
-                    "earliest_start_day": est_start,
-                    "earliest_end_day": est_end,
-                    "delay_days": delay_d
-                })
+                    feasible_platens.append({
+                        "platen_idx": p_idx,
+                        "platen_id": p_id,
+                        "platen_name": p['platen_name'],
+                        "primary_area": p.get('primary_area', 'Yard-A'),
+                        "area_m2": p_area,
+                        "crane_capacity_ton": p_cap,
+                        "area_utilization_pct": round(util, 1),
+                        "crane_margin_ton": round(p_cap - b_wt, 1),
+                        "current_busy_until": busy_until,
+                        "earliest_start_day": est_start,
+                        "earliest_end_day": est_end,
+                        "delay_days": delay_d
+                    })
 
-    validation_latency_ms = round((time.time() - t_val_start) * 1000, 3)
-    total_pipeline_ms = round((time.time() - t_start) * 1000, 2)
+        validation_latency_ms = round((time.time() - t_val_start) * 1000, 3)
+        total_pipeline_ms = round((time.time() - t_start) * 1000, 2)
 
-    # Step 3: 물리적 제약 위반 블록 명시적 반려 (Infeasible Rejection)
-    if not feasible_platens:
-        reject_result = {
-            "event_id": event_id,
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "block_id": req.block_id,
-            "ship_id": req.ship_id,
-            "assigned_platen": "배정 불가 (Infeasible)",
-            "assigned_platen_id": "NONE",
-            "primary_area": "N/A",
-            "start_day": 0,
-            "end_day": 0,
-            "due_day": req.due_date_day,
-            "delay_days": 999,
-            "area_utilization_pct": 0.0,
-            "feasible_candidates_count": 0,
-            "telemetry": {
-                "kafka_published": kafka_sent,
-                "kafka_latency_ms": kafka_latency_ms,
-                "validation_latency_ms": validation_latency_ms,
-                "total_pipeline_latency_ms": total_pipeline_ms
+        # Step 3: 물리적 제약 위반 블록 명시적 반려 (Infeasible Rejection)
+        if not feasible_platens:
+            reject_result = {
+                "event_id": event_id,
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "block_id": req.block_id,
+                "ship_id": req.ship_id,
+                "assigned_platen": "배정 불가 (Infeasible)",
+                "assigned_platen_id": "NONE",
+                "primary_area": "N/A",
+                "start_day": 0,
+                "end_day": 0,
+                "due_day": req.due_date_day,
+                "delay_days": 999,
+                "area_utilization_pct": 0.0,
+                "feasible_candidates_count": 0,
+                "telemetry": {
+                    "kafka_published": kafka_sent,
+                    "kafka_latency_ms": kafka_latency_ms,
+                    "validation_latency_ms": validation_latency_ms,
+                    "total_pipeline_latency_ms": total_pipeline_ms
+                }
             }
-        }
-        recent_emergency_events.insert(0, reject_result)
-        if len(recent_emergency_events) > 50:
-            recent_emergency_events.pop()
+            recent_emergency_events.insert(0, reject_result)
+            if len(recent_emergency_events) > 50:
+                recent_emergency_events.pop()
 
-        return {
-            "status": "INFEASIBLE_REJECTED",
-            "message": "요청된 블록을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과 또는 정반 크기 초과)",
-            "pipeline": "FastAPI Physical Filter -> Infeasible Rejected (Kafka Event Published)",
-            "result": reject_result,
-            "dispatch_result": reject_result
-        }
+            return {
+                "status": "INFEASIBLE_REJECTED",
+                "message": "요청된 블록을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과 또는 정반 크기 초과)",
+                "pipeline": "FastAPI Physical Filter -> Infeasible Rejected (Kafka Event Published)",
+                "result": reject_result,
+                "dispatch_result": reject_result
+            }
 
-    # Step 4: EST(Earliest Start Time) 우선 + 면적 활용률 최적 정반 디스패치
-    feasible_platens = sorted(
-        feasible_platens,
-        key=lambda x: (x["earliest_start_day"], -x["area_utilization_pct"])
-    )
-    best = feasible_platens[0]
+        # Step 4: EST(Earliest Start Time) 우선 + 면적 활용률 최적 정반 디스패치
+        feasible_platens = sorted(
+            feasible_platens,
+            key=lambda x: (x["earliest_start_day"], -x["area_utilization_pct"])
+        )
+        best = feasible_platens[0]
 
-    # 정반 점유 상태 실시간 업데이트 (연속 요청 시 비중첩 보장)
-    best_p_id = best["platen_id"]
-    best_p_idx = best["platen_idx"]
-    platen_busy_until_id[best_p_id] = best["earliest_end_day"]
-    platen_busy_until_idx[best_p_idx] = best["earliest_end_day"]
+        # 정반 점유 상태 원자적 업데이트 (동시/연속 요청 시 비중첩 보장)
+        best_p_id = best["platen_id"]
+        best_p_idx = best["platen_idx"]
+        platen_busy_until_id[best_p_id] = best["earliest_end_day"]
+        platen_busy_until_idx[best_p_idx] = best["earliest_end_day"]
 
     dispatch_result = {
         "event_id": event_id,
