@@ -69,7 +69,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('streaming');
   const [backendHealth, setBackendHealth] = useState({ status: 'Connecting...', platens_count: 0 });
   const [leaderboard, setLeaderboard] = useState([]);
-  
+
   // Schedule state
   const [selectedAlgo, setSelectedAlgo] = useState('ortools');
   const [scheduleData, setScheduleData] = useState(null);
@@ -104,7 +104,7 @@ function App() {
     fetch(`${API_BASE}/api/v1/emergency/events`)
       .then(res => res.json())
       .then(data => setLiveFeed(data.events || []))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // 2. Fetch Schedule data when selectedAlgo changes
@@ -194,8 +194,8 @@ function App() {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return String(item.block_id).toLowerCase().includes(term) ||
-           String(item.ship_id).toLowerCase().includes(term) ||
-           String(item.platen_name).toLowerCase().includes(term);
+      String(item.ship_id).toLowerCase().includes(term) ||
+      String(item.platen_name).toLowerCase().includes(term);
   }) || [];
 
   return (
@@ -223,21 +223,21 @@ function App() {
 
       {/* Main Tabs Navigation */}
       <nav className="tab-nav">
-        <button 
+        <button
           className={`tab-btn ${activeTab === 'streaming' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('streaming')}
         >
           <Icons.Stream />
           <span>Real-Time Stream Dispatcher</span>
         </button>
-        <button 
+        <button
           className={`tab-btn ${activeTab === 'schedule' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('schedule')}
         >
           <Icons.Schedule />
           <span>Platen Master Schedule</span>
         </button>
-        <button 
+        <button
           className={`tab-btn ${activeTab === 'benchmark' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('benchmark')}
         >
@@ -260,7 +260,7 @@ function App() {
                     Kafka 토픽 발행 및 정반 물리 제약(크기, 하중, 블록타입) 실시간 검증 기반 EST 디스패처
                   </p>
                 </div>
-                <span className="badge badge-accent">Kafka -> Flink -> FastAPI -> Postgres</span>
+                <span className="badge badge-accent">{"Kafka -> Flink -> FastAPI -> Postgres"}</span>
               </div>
 
               {/* Streaming Pipeline Visual Stepper */}
@@ -273,7 +273,7 @@ function App() {
                   </div>
                 </div>
                 <div className="step-arrow">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 </div>
                 <div className="step-box step-active">
                   <div className="step-num-circle">2</div>
@@ -283,7 +283,7 @@ function App() {
                   </div>
                 </div>
                 <div className="step-arrow">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 </div>
                 <div className="step-box step-active">
                   <div className="step-num-circle">3</div>
@@ -293,7 +293,7 @@ function App() {
                   </div>
                 </div>
                 <div className="step-arrow">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 </div>
                 <div className="step-box step-active">
                   <div className="step-num-circle">4</div>
@@ -365,8 +365,8 @@ function App() {
                     <div className="result-title-group">
                       {streamResult.feasible_candidates_count > 0 ? <Icons.CheckCircle /> : <Icons.AlertTriangle />}
                       <h3>
-                        {streamResult.feasible_candidates_count > 0 
-                          ? `Dispatch Complete: Block ${streamResult.block_id}` 
+                        {streamResult.feasible_candidates_count > 0
+                          ? `Dispatch Complete: Block ${streamResult.block_id}`
                           : `Dispatch Rejected: Block ${streamResult.block_id}`}
                       </h3>
                     </div>
@@ -376,7 +376,7 @@ function App() {
                       <span className="telemetry-pill highlight">Total: {streamResult.telemetry?.total_pipeline_latency_ms || 3.8}ms</span>
                     </div>
                   </div>
-                  
+
                   <div className="result-grid">
                     <div className="result-item highlight-box">
                       <span className="res-lbl">Assigned Platen</span>
@@ -389,7 +389,7 @@ function App() {
                     </div>
                     <div className="result-item">
                       <span className="res-lbl">Schedule Time Window</span>
-                      <span className="res-val">Day {streamResult.start_day} -> Day {streamResult.end_day}</span>
+                      <span className="res-val">{`Day ${streamResult.start_day} -> Day ${streamResult.end_day}`}</span>
                       <span className="res-sub">Target Due: Day {streamResult.due_day}</span>
                     </div>
                     <div className="result-item">
@@ -421,7 +421,7 @@ function App() {
                 <span className="badge badge-live">Live Sync</span>
               </div>
               <p className="card-desc">Kafka 실시간 스트림 이벤트 히스토리</p>
-              
+
               <div className="feed-list">
                 {liveFeed.length === 0 ? (
                   <div className="empty-feed">이벤트를 발행하면 실시간 피드가 표시됩니다.</div>
@@ -498,11 +498,11 @@ function App() {
                 <div className="filter-bar">
                   <div className="search-input-wrapper">
                     <Icons.Search />
-                    <input 
-                      type="text" 
-                      placeholder="Search by Block ID, Ship ID, or Platen Name..." 
-                      value={searchTerm} 
-                      onChange={e => setSearchTerm(e.target.value)} 
+                    <input
+                      type="text"
+                      placeholder="Search by Block ID, Ship ID, or Platen Name..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
                     />
                   </div>
                   <span className="search-count">Showing {filteredSchedule.length} / {scheduleData?.total_blocks || 872} Blocks</span>
@@ -561,7 +561,7 @@ function App() {
               </div>
               <span className="badge">Dataset: 872 Blocks x 66 Platens</span>
             </div>
-            
+
             <div className="table-responsive">
               <table className="custom-table">
                 <thead>
