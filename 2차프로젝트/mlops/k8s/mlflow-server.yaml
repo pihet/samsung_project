@@ -29,12 +29,14 @@ spec:
               mkdir -p /opt/mlflow
               echo "Installing MLflow and S3 Drivers..."
               pip install --no-cache-dir mlflow boto3
-              echo "Starting MLflow Tracking Server on Port 5000..."
+              echo "Starting MLflow Tracking Server on Port 5000 with Allowed Hosts..."
               mlflow server \
                 --backend-store-uri sqlite:////opt/mlflow/mlflow.db \
                 --default-artifact-root s3://mlflow-artifacts/ \
                 --host 0.0.0.0 \
-                --port 5000
+                --port 5000 \
+                --allowed-hosts "*" \
+                --cors-allowed-origins "*"
           env:
             - name: MLFLOW_S3_ENDPOINT_URL
               value: "http://minio-service.minio.svc:9000"

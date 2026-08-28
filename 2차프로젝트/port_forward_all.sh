@@ -15,8 +15,8 @@ kubectl port-forward -n kafka svc/my-cluster-kafka-bootstrap 9092:9092 >/dev/nul
 echo "[1/9] Kafka Bootstrap     -> localhost:9092"
 
 # 2. PostgreSQL 운영 DB 포트포워딩 (5433 -> 5432)
-kubectl port-forward -n default svc/postgres-service 5433:5432 >/dev/null 2>&1 &
-echo "[2/9] PostgreSQL (Proj 2) -> localhost:5433 (Port 5433 isolated, User/Pass: postgres/postgres)"
+kubectl port-forward -n airflow svc/airflow-postgresql 5433:5432 >/dev/null 2>&1 &
+echo "[2/9] PostgreSQL (Airflow/DB) -> localhost:5433 (Port 5433 isolated, User/Pass: postgres/postgres)"
 
 # 3. React 프론트엔드 대시보드 포트포워딩 (3000)
 kubectl port-forward -n default svc/react-frontend-service 3000:3000 >/dev/null 2>&1 &
@@ -31,7 +31,7 @@ kubectl port-forward -n airflow svc/airflow-api-server 8080:8080 >/dev/null 2>&1
 echo "[5/9] Airflow Web/API     -> http://localhost:8080 (User/Pass: admin / admin)"
 
 # 6. Kafka-UI 포트포워딩 (8088 -> 8080)
-kubectl port-forward -n kafka svc/kafka-ui-service 8088:8080 >/dev/null 2>&1 &
+kubectl port-forward -n kafka svc/kafka-ui 8088:8080 >/dev/null 2>&1 &
 echo "[6/9] Kafka UI            -> http://localhost:8088 (Mapped from 8080 to avoid collision)"
 
 # 7. MinIO 콘솔 및 S3 API 포트포워딩 (9001 -> 9001, 9000 -> 9000)
