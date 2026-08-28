@@ -3,7 +3,7 @@
 [조선소 정반 스케줄링 & MLOps 백엔드 FastAPI 서버]
 - 10대 스케줄링 알고리즘 종합 벤치마크 및 리더보드 서빙 (1,254일 / 248개 지연 실측 일치)
 - 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공 (KPI 지표: makespan, delayed_blocks, total_delay_days)
-- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (스레드 세이프 원자적 갱신)
+- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (스레드 락 기반 동시성 안전)
 - Kafka 비동기(Non-blocking) 이벤트 스트리밍 발행 및 Flink 백그라운드 관측 연동
 - 물리적 수용 불가능한 블록에 대한 명시적 INFEASIBLE_REJECTED 처리
 """
@@ -40,7 +40,7 @@ KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 app = FastAPI(
     title="Shipyard Smart Scheduling & MLOps API",
     description="FastAPI Backend for 872 Blocks Scheduling, 10-Algorithm Leaderboard & Kafka Stream Dispatcher",
-    version="2.4.0"
+    version="2.5.0"
 )
 
 app.add_middleware(
@@ -111,29 +111,34 @@ def load_assets():
                 pass
 
     algo_files = {
-        "ortools": "ortools_scheduling_results.csv",
-        "ppo": "ppo_scheduling_results.csv",
-        "dqn": "dqn_scheduling_results.csv",
-        "est": "heuristic_est_scheduling_results.csv",
-        "spt": "heuristic_spt_scheduling_results.csv",
-        "lpt": "heuristic_lpt_scheduling_results.csv",
-        "rtb": "heuristic_rtb_scheduling_results.csv",
-        "rub": "heuristic_rub_scheduling_results.csv"
+        "ortools": ["ortools_scheduling_results.csv", "ortools_results.csv"],
+        "ppo": ["ppo_scheduling_results.csv", "ppo_results.csv"],
+        "dqn": ["dqn_scheduling_results.csv", "dqn_results.csv"],
+        "est": ["heuristic_est_results.csv", "heuristic_est_scheduling_results.csv"],
+        "spt": ["heuristic_spt_results.csv", "heuristic_spt_scheduling_results.csv"],
+        "lpt": ["heuristic_lpt_results.csv", "heuristic_lpt_scheduling_results.csv"],
+        "rtb": ["heuristic_rtb_results.csv", "heuristic_rtb_scheduling_results.csv"],
+        "rub": ["heuristic_rub_results.csv", "heuristic_rub_scheduling_results.csv"]
     }
-    for algo_key, fname in algo_files.items():
-        sched_paths = [
-            os.path.join(project_root, "data", "processed", "schedules", fname),
-            os.path.join("/opt", "data", "processed", fname),
-            os.path.join("data", "processed", "schedules", fname)
-        ]
-        for sp in sched_paths:
-            if os.path.exists(sp):
-                try:
-                    df_s = pd.read_csv(sp)
-                    schedules_cache[algo_key] = df_s
-                    break
-                except Exception:
-                    pass
+    for algo_key, fnames in algo_files.items():
+        found = False
+        for fname in fnames:
+            sched_paths = [
+                os.path.join(project_root, "data", "processed", "schedules", fname),
+                os.path.join("/opt", "data", "processed", fname),
+                os.path.join("data", "processed", "schedules", fname)
+            ]
+            for sp in sched_paths:
+                if os.path.exists(sp):
+                    try:
+                        df_s = pd.read_csv(sp)
+                        schedules_cache[algo_key] = df_s
+                        found = True
+                        break
+                    except Exception:
+                        pass
+            if found:
+                break
 
     # 정반별 점유 상태(기존 스케줄의 마지막 작업 종료일) 맵 구축
     platen_busy_until_id.clear()
@@ -203,10 +208,10 @@ def get_benchmark_leaderboard():
         {"rank": 4, "algorithm": "LPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1438, "delayed_blocks": 623, "compute_time_sec": 0.001, "status": "Standard Heuristic"},
         {"rank": 5, "algorithm": "SPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1474, "delayed_blocks": 528, "compute_time_sec": 0.001, "status": "Standard Heuristic"},
         {"rank": 6, "algorithm": "EDDQN (Paper Baseline)", "type": "Research Paper Baseline", "makespan_days": 1529, "delayed_blocks": 480, "compute_time_sec": 0.10, "status": "Paper Benchmark"},
-        {"rank": 7, "algorithm": "RTB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1599, "delayed_blocks": 769, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
-        {"rank": 8, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1600, "delayed_blocks": 772, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
+        {"rank": 7, "algorithm": "RTB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1560, "delayed_blocks": 677, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
+        {"rank": 8, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1969, "delayed_blocks": 734, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
         {"rank": 9, "algorithm": "Genetic Algorithm (Paper Baseline)", "type": "Metaheuristic Baseline", "makespan_days": 1642, "delayed_blocks": 520, "compute_time_sec": 45.0, "status": "Paper Benchmark"},
-        {"rank": 10, "algorithm": "DQN (Paper Baseline)", "type": "Basic Reinforcement Learning", "makespan_days": 1785, "delayed_blocks": 612, "compute_time_sec": 0.08, "status": "Paper Benchmark"}
+        {"rank": 10, "algorithm": "DQN (Paper Baseline)", "type": "Basic Reinforcement Learning", "makespan_days": 5827, "delayed_blocks": 835, "compute_time_sec": 16.20, "status": "Paper Benchmark"}
     ]
     return {"leaderboard": leaderboard, "total_algorithms": len(leaderboard), "status": "SUCCESS"}
 
@@ -293,6 +298,7 @@ class EmergencyBlockRequest(BaseModel):
     weight_ton: float
     lead_time_days: int
     due_date_day: int
+    block_type: Optional[str] = "FLAT"
     emergency_level: Optional[str] = "CRITICAL"
 
 @app.post("/api/v1/emergency/stream-publish")
@@ -318,6 +324,7 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
         "weight_ton": req.weight_ton,
         "lead_time_days": req.lead_time_days,
         "due_date_day": req.due_date_day,
+        "block_type": req.block_type,
         "emergency_level": req.emergency_level
     }
     if kafka_producer_cache is not None:
