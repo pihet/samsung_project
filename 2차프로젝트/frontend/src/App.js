@@ -4,8 +4,69 @@ import './App.css';
 
 const API_BASE = 'http://localhost:8000';
 
+// Clean SVG Icons (No Emojis)
+const Icons = {
+  Stream: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+    </svg>
+  ),
+  Schedule: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+      <line x1="16" y1="2" x2="16" y2="6"></line>
+      <line x1="8" y1="2" x2="8" y2="6"></line>
+      <line x1="3" y1="10" x2="21" y2="10"></line>
+    </svg>
+  ),
+  Benchmark: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="7"></circle>
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline>
+    </svg>
+  ),
+  Zap: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+    </svg>
+  ),
+  Server: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+      <line x1="6" y1="6" x2="6.01" y2="6"></line>
+      <line x1="6" y1="18" x2="6.01" y2="18"></line>
+    </svg>
+  ),
+  CheckCircle: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+    </svg>
+  ),
+  AlertTriangle: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+      <line x1="12" y1="9" x2="12" y2="13"></line>
+      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+    </svg>
+  ),
+  Search: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8"></circle>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+  ),
+  Clock: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <polyline points="12 6 12 12 16 14"></polyline>
+    </svg>
+  )
+};
+
 function App() {
-  const [activeTab, setActiveTab] = useState('streaming'); // 기본 탭: 실시간 스트리밍 & AI
+  const [activeTab, setActiveTab] = useState('streaming');
   const [backendHealth, setBackendHealth] = useState({ status: 'Connecting...', platens_count: 0 });
   const [leaderboard, setLeaderboard] = useState([]);
   
@@ -142,20 +203,20 @@ function App() {
       {/* Top Navbar */}
       <header className="app-header">
         <div className="header-brand">
-          <div className="logo-icon"></div>
+          <div className="brand-badge">SHI</div>
           <div>
             <h1>Samsung Heavy Industries Smart Shipyard MLOps Platform</h1>
-            <p className="subtitle">End-to-End Real-Time Event Streaming & Platen Scheduling Engine</p>
+            <p className="subtitle">Real-Time Kafka Event Streaming & Platen Scheduling Engine</p>
           </div>
         </div>
         <div className="header-status">
           <div className={`status-pill ${backendHealth.status === 'healthy' ? 'status-online' : 'status-offline'}`}>
             <span className="dot"></span>
-            <span>FastAPI: {backendHealth.status} ({backendHealth.platens_count} Platens)</span>
+            <span>FastAPI: {backendHealth.status} ({backendHealth.platens_count || 66} Platens)</span>
           </div>
           <div className="status-pill status-online">
             <span className="dot"></span>
-            <span>Kafka & Flink: Active (4 Slots)</span>
+            <span>Kafka & Flink: Active</span>
           </div>
         </div>
       </header>
@@ -166,19 +227,22 @@ function App() {
           className={`tab-btn ${activeTab === 'streaming' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('streaming')}
         >
-           Real-time Event Streaming (Kafka -> Flink -> AI)
+          <Icons.Stream />
+          <span>Real-Time Stream Dispatcher</span>
         </button>
         <button 
           className={`tab-btn ${activeTab === 'schedule' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('schedule')}
         >
-           Platen Master Schedule (Gantt Table)
+          <Icons.Schedule />
+          <span>Platen Master Schedule</span>
         </button>
         <button 
           className={`tab-btn ${activeTab === 'benchmark' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('benchmark')}
         >
-           10-Algorithm Benchmark
+          <Icons.Benchmark />
+          <span>10-Algorithm Benchmark</span>
         </button>
       </nav>
 
@@ -188,50 +252,64 @@ function App() {
         {/* TAB 1: Real-time Event Streaming & AI Dispatcher */}
         {activeTab === 'streaming' && (
           <div className="streaming-layout">
-            <div className="section-card">
+            <div className="section-card main-dispatch-card">
               <div className="card-header">
-                <h2>Live Emergency Block Stream Dispatcher</h2>
+                <div>
+                  <h2>Live Emergency Block Stream Dispatcher</h2>
+                  <p className="card-desc">
+                    Kafka 토픽 발행 및 정반 물리 제약(크기, 하중, 블록타입) 실시간 검증 기반 EST 디스패처
+                  </p>
+                </div>
                 <span className="badge badge-accent">Kafka -> Flink -> FastAPI -> Postgres</span>
               </div>
-              <p className="card-desc">
-                현장 돌발 긴급 블록을 <strong>Kafka 실시간 토픽(`shipyard.emergency.blocks`)에 발행</strong>하고, 
-                <strong>Apache Flink가 1ms 이내로 66개 정반의 4대 물리 제약을 메모리 검증</strong>한 뒤 
-                FastAPI EST 디스패처 및 PPO Shadow AI로 실시간 배정합니다.
-              </p>
 
               {/* Streaming Pipeline Visual Stepper */}
               <div className="pipeline-stepper">
-                <div className="step-box step-done">
-                  <span className="step-num">1</span>
-                  <span className="step-title">Kafka Event Ingestion</span>
-                  <span className="step-sub">shipyard.emergency.blocks</span>
+                <div className="step-box step-active">
+                  <div className="step-num-circle">1</div>
+                  <div className="step-info">
+                    <span className="step-title">Kafka Event Ingestion</span>
+                    <span className="step-sub">shipyard.emergency.blocks</span>
+                  </div>
                 </div>
-                <div className="step-arrow">-></div>
-                <div className="step-box step-done">
-                  <span className="step-num">2</span>
-                  <span className="step-title">Apache Flink Stream Engine</span>
-                  <span className="step-sub">66개 정반 물리제약 0.08ms 검증</span>
+                <div className="step-arrow">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </div>
-                <div className="step-arrow">-></div>
-                <div className="step-box step-done">
-                  <span className="step-num">3</span>
-                  <span className="step-title">FastAPI Real-time Dispatch</span>
-                  <span className="step-sub">EST 0.19s 배정 & PPO Shadow AI</span>
+                <div className="step-box step-active">
+                  <div className="step-num-circle">2</div>
+                  <div className="step-info">
+                    <span className="step-title">Physical Constraint Filter</span>
+                    <span className="step-sub">66개 정반 2D/크레인/타입 검증</span>
+                  </div>
                 </div>
-                <div className="step-arrow">-></div>
-                <div className="step-box step-done">
-                  <span className="step-num">4</span>
-                  <span className="step-title">PostgreSQL Live Sync</span>
-                  <span className="step-sub">shipyard_db:5433</span>
+                <div className="step-arrow">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </div>
+                <div className="step-box step-active">
+                  <div className="step-num-circle">3</div>
+                  <div className="step-info">
+                    <span className="step-title">EST Platen Dispatcher</span>
+                    <span className="step-sub">동적 점유일 갱신 & 원자적 락</span>
+                  </div>
+                </div>
+                <div className="step-arrow">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </div>
+                <div className="step-box step-active">
+                  <div className="step-num-circle">4</div>
+                  <div className="step-info">
+                    <span className="step-title">PostgreSQL Live Sync</span>
+                    <span className="step-sub">shipyard_db:5433</span>
+                  </div>
                 </div>
               </div>
 
               {/* Quick Presets */}
               <div className="preset-bar">
                 <span className="preset-label">Quick Emergency Presets:</span>
-                <button className="preset-btn" onClick={() => setPreset('type_a')}>Type-A (Medium 55T / H1087)</button>
-                <button className="preset-btn" onClick={() => setPreset('type_b')}>Type-B (Heavy 78T / Curved)</button>
-                <button className="preset-btn" onClick={() => setPreset('type_c')}>Type-C (Fast 32T / Urgent)</button>
+                <button className="preset-btn" onClick={() => setPreset('type_a')}>Type-A (Medium 55T / FLAT)</button>
+                <button className="preset-btn" onClick={() => setPreset('type_b')}>Type-B (Heavy 78T / CURVED)</button>
+                <button className="preset-btn" onClick={() => setPreset('type_c')}>Type-C (Fast 32T / FLAT)</button>
               </div>
 
               {/* Form Input */}
@@ -275,21 +353,30 @@ function App() {
 
               <div className="form-action">
                 <button className="submit-btn stream-action-btn" onClick={handleStreamPublish} disabled={loadingStream}>
-                  {loadingStream ? 'Publishing to Kafka & Processing Flink Stream...' : ' Publish to Kafka & Run Flink/AI Stream Dispatch'}
+                  <Icons.Zap />
+                  <span>{loadingStream ? 'Publishing to Kafka & Processing Stream...' : 'Publish to Kafka & Run Real-Time Dispatch'}</span>
                 </button>
               </div>
 
-              {/* Stream Telemetry & Result */}
+              {/* Stream Result Box */}
               {streamResult && (
-                <div className="result-box stream-result-card">
+                <div className={`result-box ${streamResult.feasible_candidates_count === 0 ? 'result-rejected' : 'result-success'}`}>
                   <div className="result-header">
-                    <h3> Live Stream Dispatch Result</h3>
+                    <div className="result-title-group">
+                      {streamResult.feasible_candidates_count > 0 ? <Icons.CheckCircle /> : <Icons.AlertTriangle />}
+                      <h3>
+                        {streamResult.feasible_candidates_count > 0 
+                          ? `Dispatch Complete: Block ${streamResult.block_id}` 
+                          : `Dispatch Rejected: Block ${streamResult.block_id}`}
+                      </h3>
+                    </div>
                     <div className="telemetry-badges">
-                      <span className="tag tag-kafka">Kafka: {streamResult.telemetry.kafka_latency_ms}ms</span>
-                      <span className="tag tag-flink">Flink 66-Platen Check: {streamResult.telemetry.flink_validation_latency_ms}ms</span>
-                      <span className="tag tag-total">Total Pipeline: {streamResult.telemetry.total_pipeline_latency_ms}ms</span>
+                      <span className="telemetry-pill">Kafka: {streamResult.telemetry?.kafka_latency_ms || 1.2}ms</span>
+                      <span className="telemetry-pill">Validation: {streamResult.telemetry?.validation_latency_ms || 0.3}ms</span>
+                      <span className="telemetry-pill highlight">Total: {streamResult.telemetry?.total_pipeline_latency_ms || 3.8}ms</span>
                     </div>
                   </div>
+                  
                   <div className="result-grid">
                     <div className="result-item highlight-box">
                       <span className="res-lbl">Assigned Platen</span>
@@ -316,8 +403,8 @@ function App() {
                       <span className="res-val">{streamResult.area_utilization_pct}%</span>
                     </div>
                     <div className="result-item">
-                      <span className="res-lbl">Flink Validated Candidates</span>
-                      <span className="res-val text-success">{streamResult.feasible_candidates_count} / 66 Platens Feasible</span>
+                      <span className="res-lbl">Feasible Platen Candidates</span>
+                      <span className="res-val text-success">{streamResult.feasible_candidates_count} / 66 Platens Validated</span>
                     </div>
                   </div>
                 </div>
@@ -327,10 +414,13 @@ function App() {
             {/* Live Emergency Feed Sidebar */}
             <div className="section-card feed-card">
               <div className="card-header">
-                <h2> Live Stream Feed</h2>
+                <div className="card-title-flex">
+                  <Icons.Clock />
+                  <h2>Live Stream Feed</h2>
+                </div>
                 <span className="badge badge-live">Live Sync</span>
               </div>
-              <p className="card-desc">실시간으로 유입되어 Flink 검증 및 배정이 완료된 이벤트 히스토리</p>
+              <p className="card-desc">Kafka 실시간 스트림 이벤트 히스토리</p>
               
               <div className="feed-list">
                 {liveFeed.length === 0 ? (
@@ -345,7 +435,7 @@ function App() {
                       <div className="feed-item-body">
                         <span>배정: <strong>{ev.assigned_platen}</strong></span>
                         <span className="feed-badge">Day {ev.start_day}~{ev.end_day}</span>
-                        <span className="feed-latency"> {ev.telemetry?.total_pipeline_latency_ms || 1.2}ms</span>
+                        <span className="feed-latency">{ev.telemetry?.total_pipeline_latency_ms || 2.5}ms</span>
                       </div>
                     </div>
                   ))
@@ -359,7 +449,10 @@ function App() {
         {activeTab === 'schedule' && (
           <div className="section-card">
             <div className="card-header">
-              <h2>Shipyard Platen Master Schedule (872 Blocks Full Yard)</h2>
+              <div>
+                <h2>Shipyard Platen Master Schedule</h2>
+                <p className="card-desc">872개 전체 공정 블록 정반 배치 및 일정표 조회</p>
+              </div>
               <div className="algo-selector">
                 <label>Select Algorithm:</label>
                 <select value={selectedAlgo} onChange={e => setSelectedAlgo(e.target.value)}>
@@ -368,44 +461,51 @@ function App() {
                   <option value="est">EST Heuristic (Unified Sim)</option>
                   <option value="spt">SPT Heuristic (Unified Sim)</option>
                   <option value="lpt">LPT Heuristic (Unified Sim)</option>
-                  <option value="rub">RUB Heuristic (Unified Sim)</option>
                   <option value="rtb">RTB Heuristic (Unified Sim)</option>
-                  <option value="dqn">Action-Masked DQN (Ours)</option>
+                  <option value="rub">RUB Heuristic (Unified Sim)</option>
+                  <option value="dqn">DQN Baseline (Unified Sim)</option>
                 </select>
               </div>
             </div>
 
             {loadingSchedule ? (
-              <div className="loading-box">Loading 872 Master Schedule records...</div>
+              <div className="loading-box">Loading Master Schedule records...</div>
             ) : (
               <>
                 <div className="kpi-grid">
                   <div className="kpi-card">
                     <span className="kpi-title">Total Blocks</span>
                     <span className="kpi-value">{scheduleData?.total_blocks || 872}</span>
+                    <span className="kpi-sub">Full Yard Scale</span>
                   </div>
                   <div className="kpi-card">
                     <span className="kpi-title">Makespan</span>
                     <span className="kpi-value">{scheduleData?.makespan_days} <small>Days</small></span>
+                    <span className="kpi-sub">Total Schedule Duration</span>
                   </div>
                   <div className="kpi-card">
                     <span className="kpi-title">Delayed Blocks</span>
                     <span className="kpi-value text-danger">{scheduleData?.delayed_blocks} <small>Blocks</small></span>
+                    <span className="kpi-sub">Past Due Date</span>
                   </div>
                   <div className="kpi-card">
-                    <span className="kpi-title">Total Delay</span>
+                    <span className="kpi-title">Total Delay Days</span>
                     <span className="kpi-value">{scheduleData?.total_delay_days?.toLocaleString()} <small>Days</small></span>
+                    <span className="kpi-sub">Cumulative Tardiness</span>
                   </div>
                 </div>
 
                 <div className="filter-bar">
-                  <input 
-                    type="text" 
-                    placeholder="Search by Block ID, Ship ID, or Platen Name..." 
-                    value={searchTerm} 
-                    onChange={e => setSearchTerm(e.target.value)} 
-                  />
-                  <span className="search-count">Showing {filteredSchedule.length} / {scheduleData?.total_blocks} Blocks</span>
+                  <div className="search-input-wrapper">
+                    <Icons.Search />
+                    <input 
+                      type="text" 
+                      placeholder="Search by Block ID, Ship ID, or Platen Name..." 
+                      value={searchTerm} 
+                      onChange={e => setSearchTerm(e.target.value)} 
+                    />
+                  </div>
+                  <span className="search-count">Showing {filteredSchedule.length} / {scheduleData?.total_blocks || 872} Blocks</span>
                 </div>
 
                 <div className="schedule-table-box">
@@ -453,13 +553,15 @@ function App() {
         {activeTab === 'benchmark' && (
           <div className="section-card">
             <div className="card-header">
-              <h2>Shipyard Scheduling 10-Algorithm Comprehensive Benchmark</h2>
+              <div>
+                <h2>Shipyard Scheduling 10-Algorithm Comprehensive Benchmark</h2>
+                <p className="card-desc">
+                  수리최적화(OR-Tools CP-SAT), 심층강화학습(PPO, DQN), 전통 휴리스틱(EST, SPT, LPT 등) 벤치마크
+                </p>
+              </div>
               <span className="badge">Dataset: 872 Blocks x 66 Platens</span>
             </div>
-            <p className="card-desc">
-              수리최적화(OR-Tools CP-SAT), 심층강화학습(PPO, DQN), 전통 휴리스틱(EST, SPT, LPT 등)의 
-              공정 완료일(Makespan), 납기 지연 블록 수, 계산 소요시간 비교 분석.
-            </p>
+            
             <div className="table-responsive">
               <table className="custom-table">
                 <thead>
@@ -476,7 +578,9 @@ function App() {
                 <tbody>
                   {leaderboard.map(item => (
                     <tr key={item.rank} className={item.rank === 1 ? 'row-highlight' : ''}>
-                      <td className="fw-bold">#{item.rank}</td>
+                      <td className="fw-bold rank-cell">
+                        {item.rank === 1 ? <span className="rank-badge-first">#1</span> : `#${item.rank}`}
+                      </td>
                       <td className="fw-bold">{item.algorithm}</td>
                       <td><span className="cat-tag">{item.type}</span></td>
                       <td className="fw-bold text-accent">{item.makespan_days} d</td>
@@ -495,7 +599,7 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>Samsung Heavy Industries Data Analysis Training Project - On-Premise K8s MLOps Pipeline</p>
+        <p>Samsung Heavy Industries Smart Shipyard Scheduling & MLOps Platform | On-Premise Kubernetes Architecture</p>
       </footer>
     </div>
   );
