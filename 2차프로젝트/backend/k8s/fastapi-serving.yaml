@@ -9,7 +9,7 @@ metadata:
   labels:
     app: fastapi-serving
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: fastapi-serving
@@ -26,12 +26,21 @@ spec:
             - /bin/bash
             - -c
             - |
-              echo "Installing FastAPI and ML Serving dependencies..."
-              pip install --no-cache-dir fastapi uvicorn pandas numpy torch pydantic --extra-index-url https://download.pytorch.org/whl/cpu
+              echo "Installing dependencies..."
+              pip install --no-cache-dir fastapi uvicorn pandas numpy pydantic psycopg2-binary kafka-python
               echo "Launching Uvicorn ASGI Server..."
               python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
           workingDir: /opt
           env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "my-cluster-kafka-bootstrap.kafka.svc:9092"
+            - name: KAFKA_USER
+              value: "my-app-user"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: my-app-user
+                  key: password
             - name: MINIO_ENDPOINT
               value: "http://minio-service.minio.svc:9000"
             - name: MINIO_ACCESS_KEY
