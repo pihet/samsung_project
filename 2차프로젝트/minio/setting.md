@@ -1,48 +1,51 @@
-#  MinIO 로컬 S3 스토리지 빠른 시작 가이드 (setting.md)
+# MinIO Distributed Object Storage 운영 가이드
 
-이 문서는 처음 시작하는 사람도 **위에서부터 순서대로 명령어를 복사해서 터미널에 붙여넣기만 하면 100% 동일하게 동작**하도록 작성된 실전 구축 가이드입니다.
+> S3 호환 오브젝트 스토리지로, MLflow 모델 아티팩트(`s3://mlflow-artifacts/`) 및 PySpark Parquet 피처마트를 보관하는 운영 명령어 가이드입니다.
 
 ---
 
-##  Step 1. MinIO 로컬 S3 스토리지 배포
+## 1. 인프라 배포 및 구성 명령어 (Setup & Deploy)
 
 ```bash
-# 1. MinIO 배포 (Namespace, Secret, PVC, Deployment, Service 일괄 생성)
+# 1. minio 네임스페이스 생성
+kubectl create namespace minio --dry-run=client -o yaml | kubectl apply -f -
+
+# 2. MinIO 스토리지 배포
 kubectl apply -f minio/minio.yaml
 
-# 2. MinIO 파드 기동 확인 (1/1 Running 될 때까지 대기)
-kubectl get pods -n minio -w
+# 3. 파드 상태 확인
+kubectl get pods -n minio
 ```
 
 ---
 
-##  Step 2. MinIO 웹 대시보드 접속 (포트포워딩)
-
-MinIO 콘솔과 S3 API가 원활하게 통신할 수 있도록 **9000번(API)과 9001번(콘솔)** 포트를 동시에 포트포워딩합니다:
+## 2. 상태 확인 및 모니터링 명령어 (Verify & Monitor)
 
 ```bash
-# S3 API(9000) 및 웹 콘솔(9001) 동시 포트포워딩
-kubectl port-forward -n minio svc/minio-service 9000:9000 9001:9001
+# 1. MinIO 웹 콘솔 및 S3 API 포트포워딩
+kubectl port-forward -n minio svc/minio-service 9001:9001 9000:9000
+# 웹 콘솔: http://localhost:9001 (계정: minioadmin / minioadmin123)
+# S3 API : http://localhost:9000
 ```
 
--  **웹 대시보드 URL:** [http://localhost:9001](http://localhost:9001)
--  **로그인 계정:**
-  - **Username:** `minioadmin`
-  - **Password:** `minioadmin123`
-
 ---
 
-##  Step 3. 필수 버킷(Bucket) 생성
+## 3. 버킷 생성 및 데이터 초기화 명령어 (Run & Execute)
 
-MinIO 웹 콘솔에 로그인한 뒤, 좌측 메뉴의 **Buckets  Create Bucket**을 클릭하여 아래 2개의 버킷을 생성합니다:
+```bash
+# 가상환경 활성화
+pj2
 
-1. **`features`**: Spark가 가공한 머신러닝/딥러닝 피처 Parquet 데이터셋 저장용
-2. **`models`**: 딥러닝(Keras/PyTorch) 학습 완료된 모델 아티팩트(`my_model.keras` 등) 저장용
+# 1. MLflow 및 레이크하우스 필수 버킷 생성 (Python boto3)
+python -c "
+import boto3
+s3 = boto3.client('s3', endpoint_url='http://localhost:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin123')
+for b in ['mlflow-artifacts', 'shipyard-lakehouse', 'shipyard-mlops']:
+    if b not in [bk['Name'] for bk in s3.list_buckets().get('Buckets', [])]:
+        s3.create_bucket(Bucket=b)
+        print(f'Created bucket: {b}')
+"
 
----
-
-##  Step 4. 내부 서비스 연결 정보 (K8s 클러스터 내부용)
-
-- **S3 API 엔드포인트 URL:** `http://minio-service.minio.svc:9000`
-- **Access Key:** `minioadmin`
-- **Secret Key:** `minioadmin123`
+# 2. 레이크하우스 메타데이터 및 초기 테이블 적재
+python minio/lakehouse_init_tables.py
+```

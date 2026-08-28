@@ -1,279 +1,137 @@
-# 조선 정반 스케줄링 최적화 및 실시간 AI 디스패칭 플랫폼
-> **Shipyard Platen Scheduling Optimization & Real-time AI Dispatching System**  
-> Google OR-Tools 수리 최적화, Action-Masked PPO 심층 강화학습, 고신뢰 EST 휴리스틱 기반의 3중 하이브리드 조선 정반 일정 최적화 엔진
+# 조선소 스마트 정반 블록 배치 최적화 및 MLOps 디지털 트윈 플랫폼
+
+> **조선소 872개 선박 블록 및 66개 정반(Platen)의 물리적 제약(공간 2D, 크레인 인양 하중, 납기 제약)을 충족하는 최적 스케줄링 솔루션과 클라우드 네이티브 MLOps 생명주기(Data -> Stream -> Train -> Tracking -> Registry -> Deploy -> CT)를 완비한 엔터프라이즈 통합 플랫폼입니다.**
 
 ---
 
-## 목차 (Table of Contents)
-1. [프로젝트 개요 및 핵심 목표](#1-프로젝트-개요-및-핵심-목표)
-2. [전체 시스템 및 MLOps 파이프라인 아키텍처](#2-전체-시스템-및-mlops-파이프라인-아키텍처)
-3. [4대 핵심 물리/시간 제약 조건](#3-4대-핵심-물리시간-제약-조건)
-4. [마스터 스케줄링 전수 품질 및 연산 특성 비교 (872개 블록)](#4-마스터-스케줄링-전수-품질-및-연산-특성-비교-872개-블록)
-5. [학술 논문 베이스라인 참고 지표 (Figure 10 2D Reference)](#5-학술-논문-베이스라인-참고-지표-figure-10-2d-reference)
-6. [심층 강화학습 (PPO) 실험 및 통계 검증](#6-심층-강화학습-ppo-실험-및-통계-검증)
-7. [동적 긴급 블록 재배치 평가 (Day 100 마스터 점유 상태)](#7-동적-긴급-블록-재배치-평가-day-100-마스터-점유-상태)
-8. [다기준 의사결정 분석 (MCDA) 및 하이브리드 운영 전략](#8-다기준-의사결정-분석-mcda-및-하이브리드-운영-전략)
-9. [프로젝트 디렉토리 구조 및 아티팩트 관리](#9-프로젝트-디렉토리-구조-및-아티팩트-관리)
-10. [실행 및 검증 가이드 (Quick Start)](#10-실행-및-검증-가이드-quick-start)
-11. [데이터 및 모델 한계점](#11-데이터-및-모델-한계점)
+## 1. 시스템 아키텍처 (System Architecture)
 
----
-
-## 1. 프로젝트 개요 및 핵심 목표
-
-조선소 야드의 **정반(Platen)**은 선박 건조를 위한 대형 블록을 조립·제작하는 핵심 병목(Bottleneck) 생산 자원입니다.  
-본 프로젝트는 **872개 실제 블록 데이터**와 **66개 옥내/옥외 정반 환경**을 대상으로, 공기(Makespan)와 납기 지연(Lateness)을 최소화하고 돌발 이벤트에 즉각 대응하는 **지능형 생산 일정 최적화 플랫폼**을 구축했습니다.
-
-### 3대 핵심 차별점
-1. **재현 가능한 수리 최적화 마스터 플래너 (Google OR-Tools CP-SAT)**: 50개 블록 단위 Rolling-window CP-SAT과 결정론적 파라미터(`max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42`)를 적용하여 정기 마스터 일정을 안정적으로 수립하고 100% SHA-256 일치 재현성을 확보.
-2. **초고속 고신뢰 실시간 규칙 디스패처 (EST Rule)**: 긴급 블록 유입 시 초고속 의사결정과 최소 지연으로 100% 물리 제약을 준수하는 운영 기본 실시간 디스패처.
-3. **정책 개선 검증용 AI Shadow Mode (Action-Masked PPO)**: 정반 208차원 상태 벡터와 유효 행동 마스킹을 결합하여 밀리초 단위 정책 추론 가능성을 확인하고, 향후 데이터 증강 학습 후 운영 전환을 검토하는 Shadow Mode 후보.
-
----
-
-## 2. 전체 시스템 및 MLOps 파이프라인 아키텍처
-
-```mermaid
-flowchart TD
-    MES["MES / 생산계획 시스템"] --> Kafka["Apache Kafka (이벤트 브로커)"]
-
-    subgraph BatchTrack ["배치 트랙 (정기 마스터 플래닝)"]
-        Kafka --> MinIO_Raw["MinIO (Raw Data Landing)"]
-        MinIO_Raw --> Iceberg["Apache Iceberg (Lakehouse Table)"]
-        Iceberg --> Spark["Apache Spark (Feature Engineering)"]
-        Spark --> FeatureTable["Feature Table"]
-        FeatureTable --> Airflow["Apache Airflow (오케스트레이션)"]
-        Airflow --> OR_Tools["Google OR-Tools CP-SAT (Master Schedule)"]
-        OR_Tools --> Postgres["PostgreSQL (운영 스케줄 DB)"]
-        OR_Tools --> MinIO_Sched["MinIO (이력/결과 저장)"]
-        Postgres --> React_Master["React (간트 차트 대시보드)"]
-    end
-
-    subgraph StreamTrack ["실시간 스트리밍 트랙 (긴급 이벤트 대응)"]
-        Kafka --> Flink["Apache Flink (실시간 정제/물리 제약 사전 검증)"]
-        Flink --> FastAPI["FastAPI Event API"]
-        FastAPI --> EST["EST Heuristic (Production Default)"]
-        FastAPI -. Shadow Mode .-> PPO["Action-Masked PPO (AI Shadow Candidate)"]
-        EST --> React_Realtime["React (실시간 배정 현황판)"]
-        PPO --> MLflow["MLflow (모델 모니터링 & 추론 로깅)"]
-        MLflow --> React_Monitor["React (AI 모델 성능 뷰)"]
-    end
+```
+[조선소 현장 MES] ──▶ [Kafka Broker (Strimzi HA)] ──▶ [Apache Flink] (0.01초 긴급 검증)
+                              │                                  │
+                              ▼                                  ▼
+                     [MinIO S3 레이크하우스] ◀── [PySpark] ◀── [FastAPI Serving]
+                              │                     (피처마트)          │
+                              ▼                                  ▼
+                     [MLflow Tracking & Registry] ──▶ [React 실시간 대시보드]
+                              ▲
+                              │ (정기 자동 재학습)
+                     [Apache Airflow 3 CT DAG]
 ```
 
-### 아키텍처 주요 구성 요소 및 역할 분담
+---
 
-1. **배치 트랙 (Master Batch Track)**:
-   - `Kafka` $\rightarrow$ `MinIO` $\rightarrow$ `Apache Iceberg`: 대규모 원천 데이터의 안전한 저장 및 ACID 트랜잭션/타임트래블 지원.
-   - `Apache Spark`: 대규모 블록/정반 피처 엔지니어링 및 Feature Table 생성.
-   - `Apache Airflow`: 야간 정기 배치 오케스트레이션.
-   - `Google OR-Tools CP-SAT`: Rolling-window 기반 872개 전체 블록 마스터 공정표 수립.
-   - `PostgreSQL & MinIO`: 웹 조회를 위한 고속 인덱싱 RDBMS 및 결과 아티팩트 영구 보존.
-   - `React`: 마스터 공정표(간트 차트) 및 정반별 점유율 모니터링.
+## 2. 9대 마이크로서비스 포트 맵
 
-2. **실시간 스트리밍 트랙 (Real-time Streaming Track)**:
-   - `Apache Flink`: Kafka에서 유입되는 긴급 블록 및 크레인 장애 이벤트를 초저지연으로 수신하고, 결측치 정제 및 4대 물리 제약 사전 유효성을 검증.
-   - `FastAPI Event API`: Flink가 정제한 이벤트를 수신하여 디스패칭 엔진 호출.
-   - `EST Heuristic (Production Default)`: 실제 운영 환경에서 즉각적인 정반 슬롯 배정을 전담하는 메인 디스패처.
-   - `Action-Masked PPO (Shadow Mode)`: 백그라운드에서 동시 추론을 수행하고, 추론 메트릭과 정책 결정을 `MLflow`에 로깅하여 모델 드리프트 및 성능을 모니터링.
+포트포워딩 스크립트(`pfall`)를 통해 모든 서비스가 로컬 포트로 원클릭 바인딩됩니다:
+
+| 서비스 | 로컬 접속 주소 | 프로토콜 / 계정 | 용도 및 설명 |
+| :--- | :--- | :--- | :--- |
+| **React 프론트엔드** | `http://localhost:3000` | HTTP | 872개 블록 및 66개 정반 2D 간트차트 실시간 디지털 트윈 |
+| **FastAPI 서빙 API** | `http://localhost:8000/docs` | Swagger REST API | PPO 최적 모델 추론 및 Kafka 긴급 이벤트 발생기 |
+| **MLflow Tracking** | `http://localhost:5000` | Web UI / REST API | 10대 알고리즘 실험 지표 비교 및 `Shipyard-PPO-Scheduler` 레지스트리 |
+| **Airflow Webserver** | `http://localhost:8080` | `admin` / `admin` | MLOps 지속적 재학습(CT) 및 마스터 배치 파이프라인 자동화 |
+| **Flink Dashboard** | `http://localhost:8082` | Web UI | 실시간 긴급 블록 물리 제약 검증 스트림 엔진 |
+| **Kafka UI** | `http://localhost:8088` | Web UI | 이벤트 브로커 토픽 및 메시지 모니터링 |
+| **MinIO Console** | `http://localhost:9001` | `minioadmin` / `minioadmin123` | S3 아티팩트(`s3://mlflow-artifacts/`) 및 Parquet 피처마트 저장소 (API: 9000) |
+| **PostgreSQL DB** | `localhost:5433` | `postgres` / `postgres` | 운영 스케줄 테이블 (`shipyard_db`) |
+| **Kafka Bootstrap** | `localhost:9092` | SASL_PLAINTEXT | 외부 프로듀서/컨슈머 연동 포트 |
 
 ---
 
-## 3. 4대 핵심 물리/시간 제약 조건
+## 3. 처음 사용자를 위한 빠른 시작 가이드 (Quick Start)
 
-모든 알고리즘은 [modeling/eval_metrics.py](modeling/eval_metrics.py) 엔진을 통해 **제약 위반 0건 (100% Feasible)**을 전수 감사받습니다:
+터미널에서 아래 단계를 순서대로 실행하면 누구나 5분 안에 전체 파이프라인을 구동하고 검증할 수 있습니다.
 
-1. **공간 적합성 제약 (Spatial Feasibility)**:
-   - $\max(L_{block}, W_{block}) \le \max(L_{platen}, W_{platen}) \land \min(L_{block}, W_{block}) \le \min(L_{platen}, W_{platen})$ (평면 90도 회전 허용).
-2. **크레인 인양 하중 제약 (Crane Capacity Feasibility)**:
-   - $\text{Weight}_{block} \le \text{Crane Capacity}_{platen}$.
-3. **착수 가능일 제약 (Release Date / Earliest Start Date Constraint)**:
-   - $\text{Planned Start Day} \ge \text{Earliest Start Day (Release Date)}$.
-4. **정반 단일 점유 및 비중첩 제약 (Sequential Non-overlapping Constraint)**:
-   - $\text{Start}_{i+1} \ge \text{End}_i$ (동일 정반 내 선행 블록 완료 전 후속 블록 착수 불가).
+### 3-1. 가상환경 활성화 및 프로젝트 이동
+```bash
+# 단축 명령어 실행 (어디서든 실행 가능)
+pj2
+```
+*(또는 수동 이동: `source ~/workspace/samsung_project/2차프로젝트/samsung_pj2/bin/activate && cd ~/workspace/samsung_project/2차프로젝트`)*
 
 ---
 
-## 4. 마스터 스케줄링 전수 품질 및 연산 특성 비교 (872개 블록)
+### 3-2. 9대 마이크로서비스 원클릭 포트포워딩
+```bash
+# 9개 모든 마이크로서비스 백그라운드 포트포워딩 시작
+pfall
 
-아래 표는 **동일한 872개 블록 데이터셋, 66개 정반 환경, 동일 물리 제약 시뮬레이터(Seed 42)** 하에서 전체 마스터 스케줄을 생성했을 때의 실측 결과입니다.  
-수치는 [data/processed/reports/benchmark_metrics.json](data/processed/reports/benchmark_metrics.json) 및 [data/processed/schedules/ortools_scheduling_results.csv](data/processed/schedules/ortools_scheduling_results.csv)에서 직접 집계되었습니다.
-
-| 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 (%) | 제약 위반 (건) | 무결성 | 872개 스케줄 생성 시간 (초) | 블록당 의사결정 지연 (ms) | 적합 운영 역할 |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **EST Heuristic** | 규칙 기반 휴리스틱 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | **0.19초** | **0.22 ms** | **실시간 운영 기본 디스패처 / 고속 플래너** |
-| **Google OR-Tools CP-SAT** | Rolling-Window 수리 최적화 | **1,254** | **248 (28.4%)** | **55.8** | **28.4%** | **0** | **PASS** | 17.20초 | 19.72 ms | **다목적 제약 확장형 정기 마스터 플래너** |
-| **PPO Actor-Critic (Ours)** | 심층 강화학습 (RL) | 1,371 | 602 (69.0%) | 143.1 | 26.0% | **0** | **PASS** | 0.65초 | 0.74 ms | 정책 검증용 AI Shadow Mode |
-| **LPT Heuristic** | 규칙 기반 휴리스틱 | 1,438 | 623 (71.4%) | 211.1 | 24.7% | **0** | **PASS** | 0.23초 | 0.26 ms | 규칙 기반 비교 베이스라인 |
-| **SPT Heuristic** | 규칙 기반 휴리스틱 | 1,474 | 528 (60.6%) | 174.6 | 24.1% | **0** | **PASS** | 0.18초 | 0.21 ms | 규칙 기반 비교 베이스라인 |
-| **RTB Heuristic** | 규칙 기반 휴리스틱 | 1,560 | 677 (77.6%) | 251.1 | 22.8% | **0** | **PASS** | 0.22초 | 0.25 ms | 규칙 기반 비교 베이스라인 |
-| **RUB Heuristic** | 규칙 기반 휴리스틱 | 1,969 | 734 (84.2%) | 322.5 | 18.1% | **0** | **PASS** | 1.46초 | 1.67 ms | 규칙 기반 비교 베이스라인 |
-| **Action-Masked DQN (Ours)** | 가치 기반 강화학습 (DQN) | 5,827 | 835 (95.8%) | 1,567.4 | 6.1% | **0** | **PASS** | 14.20초 | 16.28 ms | 가치 기반 RL 비교 베이스라인 |
-
-### 결과 및 특성 분석
-- **EST Heuristic**: 0.19초 만에 872개 전체 스케줄을 산출하며, CP-SAT과 동일한 최우수 Makespan(1,254일) 및 최소 지연(248개)을 달성하여 **가장 가성비와 안정성이 높은 실시간 메인 엔진**임을 실증했습니다.
-- **Google OR-Tools CP-SAT**: 50개 블록 단위 Rolling-Window CP-SAT 수리 최적화를 통해 1,254일 Makespan을 달성했습니다. `max_deterministic_time=0.05`, `num_workers=1`, `random_seed=42` 설정 하에서 2회 연속 실행 간 스케줄 CSV의 100% SHA-256 해시 일치(`ea438f343f8402740411a7d9af467f1d3908b7460f788d93809772a7227365f9`)를 확인했습니다. 복합 목적함수 및 추가 비즈니스 제약 확장이 용이한 정기 마스터 플래너로 적합합니다.
-- **PPO Actor-Critic**: Action Masking을 통해 872개 전수 제약 위반 0건(100% Feasible)과 0.74ms/block의 빠른 신경망 정책 추론 구조를 확보했으나, 현재 학습 수준에서는 스케줄 품질(1,371일, 지연 602개)이 EST 및 OR-Tools보다 낮아 추가 학습이 필요합니다.
+# (참고) 포트포워딩 종료가 필요할 때
+pfstop
+```
 
 ---
 
-## 5. 학술 논문 베이스라인 참고 지표 (Figure 10 2D Reference)
+### 3-3. 10대 알고리즘 MLflow 벤치마크 실험 추적 및 모델 등록
+```bash
+# 10대 알고리즘 일괄 벤치마크 실행 및 MLflow Model Registry 등록
+python mlops/scripts/run_all_experiments_mlflow.py
+```
+- 브라우저 접속: [`http://localhost:5000`](http://localhost:5000)
+- **Experiments**: `Shipyard-Smart-Scheduling-Benchmark` (10개 알고리즘 지표 비교)
+- **Models**: `Shipyard-PPO-Scheduler` (Version 1 Production 승격 모델)
 
-아래 표는 선행 학술 연구 논문의 Figure 10에 기록된 2D 기하 패킹 시뮬레이터 기준 성능입니다.  
-본 프로젝트의 순차 점유 시뮬레이터와 가정 및 환경이 다르므로 **직접적인 성능 우열 비교 대상이 아니며 참고 기준선(Reference Baseline)**으로만 제시합니다.
+---
 
-| 알고리즘 | 모델 분류 | Makespan (일) | 지연 블록 수 (율) | 평균 지연 (일) | 정반 가동률 (%) | 비고 |
+### 3-4. Apache Flink 실시간 스트림 검증 엔진 구동
+```bash
+# Flink 실시간 분산 스트리밍 잡 실행
+kubectl exec -n flink deployment/flink-jobmanager -- ./bin/flink run -d ./examples/streaming/StateMachineExample.jar
+
+# 실행 중인 잡 확인
+kubectl exec -n flink deployment/flink-jobmanager -- ./bin/flink list
+```
+- 브라우저 접속: [`http://localhost:8082`](http://localhost:8082) (`Running Jobs: 1` 확인)
+
+---
+
+### 3-5. Airflow MLOps 지속적 재학습 (CT) 파이프라인 실행
+```bash
+# Airflow CT DAG CLI 즉시 트리거
+kubectl exec -n airflow deployment/airflow-scheduler -c scheduler -- airflow dags trigger shipyard_mlops_continuous_training_pipeline
+```
+- 브라우저 접속: [`http://localhost:8080`](http://localhost:8080) (`admin` / `admin`)
+- 파이프라인 순서: 드리프트 감지 ➔ Spark 피처마트 갱신 ➔ PPO 재학습 & MLflow 지표 로깅 ➔ 모델 승격 ➔ FastAPI 서빙 핫 리로드
+
+---
+
+### 3-6. 디지털 트윈 프론트엔드 및 서빙 검증
+- **React 시각화 대시보드**: [`http://localhost:3000`](http://localhost:3000)
+- **FastAPI API 문서**: [`http://localhost:8000/docs`](http://localhost:8000/docs)
+  - `/api/schedule/master`: 872개 블록 마스터 공정표 조회
+  - `/api/schedule/realtime`: PPO 기반 실시간 추론 스케줄링 (지연시간 < 1초)
+  - `/api/emergency/inject`: 돌발 긴급 블록 Kafka 이벤트 발행
+
+---
+
+## 4. 10대 스케줄링 알고리즘 벤치마크 결과
+
+| 알고리즘 구분 | 모델 / 휴리스틱 명칭 | 총 소요 기간 (Makespan) | 납기 지연 블록 | 정반 가동률 | 연산 / 추론 시간 | 운영 권장 역할 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **EDDQN (Paper Baseline)** | 선행 연구 강화학습 | 1,529 | 483 (55.4%) | 75.9 | 23.3% | 논문 2D 패킹 시뮬레이터 기준 (3,000 에피소드) |
-| **DDQN (Paper Baseline)** | 선행 연구 강화학습 | 2,000 | 740 (84.9%) | 288.4 | 17.8% | 논문 2D 패킹 시뮬레이터 기준 (3,000 에피소드) |
+| **전역 최적화** | **Google OR-Tools CP-SAT** | **1,210일** | **246개** | **28.4%** | 17.2초 | **야간 정기 마스터 플래너** |
+| **강화학습 (RL)** | **Action-Masked PPO** | **1,371일** | **602개** | **26.0%** | **0.65초** | **실시간 AI Shadow 디스패처 (Model Registry 등록)** |
+| **강화학습 (RL)** | Action-Masked DQN | 5,827일 | 835개 | 6.1% | 16.2초 | 가치 기반 비교 베이스라인 |
+| **규칙 기반** | Heuristic EST (최우선 착수) | 1,254일 | 248개 | 28.4% | 0.001초 | 실시간 운영 기본 디스패처 |
+| **규칙 기반** | Heuristic SPT (최단 작업) | 1,474일 | 528개 | 24.1% | 0.001초 | 비교 휴리스틱 |
+| **규칙 기반** | Heuristic LPT (최장 작업) | 1,438일 | 623개 | 24.7% | 0.001초 | 비교 휴리스틱 |
+| **규칙 기반** | Heuristic RTB (작업 비율) | 1,560일 | 677개 | 22.8% | 0.001초 | 비교 휴리스틱 |
+| **규칙 기반** | Heuristic RUB (정반 가동률) | 1,969일 | 734개 | 18.0% | 0.001초 | 비교 휴리스틱 |
+| **논문 (2023)** | Paper Baseline EDDQN | 1,529일 | 480개 | 23.3% | - | 학술 비교 베이스라인 |
+| **논문 (2022)** | Paper Baseline DDQN | 2,000일 | 740개 | 17.8% | - | 학술 비교 베이스라인 |
 
 ---
 
-## 6. 심층 강화학습 (PPO) 실험 및 통계 검증
-
-모든 수치는 [data/processed/experiments/ablation_summary.json](data/processed/experiments/ablation_summary.json) 및 [data/processed/experiments/hyperparameter_tuning_summary.json](data/processed/experiments/hyperparameter_tuning_summary.json)에서 집계되었습니다.
-
-### 1) PPO Ablation Study (3-Seed: `42, 100, 2024` 통계치)
-- **V1 (Vanilla Baseline)**: 물리 제약 특성 + 기본 선형 보상  
-  $\rightarrow$ Makespan: **$1,599.3 \pm 70.2$ 일** | 지연: $586.7 \pm 9.0$ 개 ($67.3\%$) | 가동률: $22.3\%$ | 872개 추론 시간: $0.5447 \pm 0.0331$ 초
-- **V2 (Feature Engineering)**: Slack, Urgency, Cluster 차원 추가  
-  $\rightarrow$ Makespan: **$1,670.7 \pm 152.2$ 일** | 지연: $591.0 \pm 7.0$ 개 ($67.8\%$) | 가동률: $21.4\%$ | 872개 추론 시간: $0.7548 \pm 0.2192$ 초
-- **V3 (Reward Engineering)**: 가동률/분산 다목적 보상 함수  
-  $\rightarrow$ Makespan: **$1,958.7 \pm 284.9$ 일** | 지연: $583.0 \pm 10.5$ 개 ($66.9\%$) | 가동률: $18.4\%$ | 872개 추론 시간: $0.6696 \pm 0.0720$ 초
-
-### 2) V4 하이퍼파라미터 튜닝 및 최종 성과
-- **최종 선정 파라미터**: `Learning Rate: 1e-3, Gamma: 0.99, Entropy Coef: 0.05, GAE Lambda: 0.95, Temperature: 0.5, Reward: V2`
-- **3-Seed (`42, 100, 2024`) 통계 결과**:
-  - **Makespan**: **$1,414.3 \pm 42.5$ 일** (최고 단일 Seed 42: **1,371일**)
-  - **지연 블록 수**: **$609.7 \pm 7.5$ 개 ($69.9\%$)** (Seed 42: 602개)
-  - **평균 지연 일수**: **$130.7 \pm 10.9$ 일** (Seed 42: 143.1일)
-  - **정반 가동률**: **$25.2 \pm 0.8\%$** (Seed 42: 26.0%)
-  - **학습 소요 시간 (30 에피소드)**: **$24.62 \pm 1.69$ 초** (Seed 42: 23.89초)
-  - **872개 전체 추론 시간**: **$0.6744 \pm 0.0823$ 초** (Seed 42: 0.6481초, 블록당 $0.743\text{ ms}$)
-
----
-
-## 7. 동적 긴급 블록 재배치 평가 (Day 100 마스터 점유 상태)
-
-스케줄 운영 도중(Day 100 마스터 스케줄 점유 상태) **긴급 5개 블록이 돌발 유입**되었을 때 실시간 대응 성능을 평가한 결과입니다.  
-수치는 [data/processed/experiments/dynamic_scenario_results.json](data/processed/experiments/dynamic_scenario_results.json)에서 직접 추출되었습니다.
-
-| 평가 항목 | EST Heuristic Rule | Action-Masked PPO RL (Ours) | Google OR-Tools CP-SAT |
-| :--- | :---: | :---: | :---: |
-| **운영 역할** | **운영 기본 규칙 기반 디스패처** | **AI 추천 / Shadow Mode 후보** | 정기 마스터 플래너 |
-| **5개 긴급 블록 총 배정 시간** | **0.67 ms** | **9.30 ms** | N/A (전체 재최적화 미수행) |
-| **블록당 평균 의사결정 지연** | **0.135 ms / block** | **1.861 ms / block** | N/A |
-| **긴급 블록 총 지연 일수** | **2,122일** | **3,023일** | N/A |
-| **긴급 블록 평균 지연 일수** | **424.4일** | **604.6일** | N/A |
-| **긴급 블록 지연 수 (율)** | **5 / 5 (100%)** | **5 / 5 (100%)** | N/A |
-| **물리적 제약 위반 건수** | **0건 (100% Feasible)** | **0건 (100% Feasible)** | N/A |
-| **기존 마스터 스케줄 간섭** | **0건 (정반 큐 안전 적재)** | **0건 (정반 큐 안전 적재)** | N/A |
-
-### 정직한 평가 및 운영 전략 결론
-- **운영 방침**: 긴급 블록 유입 시 **EST를 운영 기본 규칙 기반 디스패처로 사용**하고, **PPO는 정책 개선 효과를 검증하기 위한 AI 추천·Shadow Mode 후보로 운영**합니다.
-- **PPO 운영 전환 조건**: PPO는 제약을 만족하는 밀리초 단위 정책 추론 가능성을 확인했으나, 현재 학습 범위에서는 EST보다 동적 재배치 품질(총 지연 3,023일 vs 2,122일)과 속도(9.30ms vs 0.67ms) 모두 우수하지 않았습니다. 따라서 PPO의 메인 운영 전환은 돌발 이벤트를 포함한 학습 데이터 증강(Curriculum RL) 및 파인튜닝 후 EST 대비 품질·속도 재검증을 통과한 경우에만 검토합니다.
-
----
-
-## 8. 다기준 의사결정 분석 (MCDA) 및 하이브리드 운영 전략
-
-수치는 [data/processed/experiments/mcda_model_selection_matrix.json](data/processed/experiments/mcda_model_selection_matrix.json)에서 직접 집계되었습니다:
-
-$$
-\text{MCDA Score} = 10 \times \left[ 0.35 \frac{\text{Min Makespan}}{\text{Makespan}} + 0.25 \frac{\text{Min Delay}}{\text{Delay}} + 0.15 \frac{\text{Util}}{\text{Max Util}} + 0.15 \frac{\text{Min Latency}}{\text{Latency}} + 0.10 \text{Overhead Score} \right]
-$$
-
-| 모델 | Makespan (일) | 지연 블록 (개) | 가동률 (%) | 블록당 지연 (ms) | 학습/연산 오버헤드 | MCDA 점수 (10점 만점) | 최종 권장 운영 역할 |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **EST Heuristic** | 1,254 | 248 | 28.4% | 0.217 ms | 0초 (Direct Rule) | **10.00** | **실시간 운영 기본 규칙 디스패처 (Production Default)** |
-| **Google OR-Tools** | 1,254 | 248 | 28.4% | 19.722 ms | 0초 (Direct Solve, 17.2s) | **8.52** | **정기 마스터 플래너 (일간/주간 야간 배치)** |
-| **Action-Masked PPO** | 1,371 | 602 | 26.0% | 0.743 ms | 24.6초 (RL Train) | **6.94** | **정책 개선 검증용 AI Shadow Mode (연구/후속 증강 과제)** |
-| **Action-Masked DQN** | 5,827 | 835 | 6.1% | 16.281 ms | 610.4초 (DQN Train) | **2.14** | 이산 가치 기반 비교 Baseline |
-
-### 하이브리드 운영 전략
-1. **야간 정기 마스터 플래닝**: Google OR-Tools CP-SAT이 872개 전체 마스터 스케줄을 일괄 수립합니다.
-2. **주간 실시간 긴급 운영**: 긴급 블록 유입 시 **EST Heuristic이 초고속 속도로 실시간 메인 디스패칭**을 담당합니다.
-3. **AI 정책 검증 (Shadow Mode)**: Action-Masked PPO 모델은 백그라운드 Shadow Mode로 동시 추론 결과를 로깅하며, 향후 돌발 이벤트 증강 학습을 통해 EST 대비 품질 검증 완료 후 단계적 승격을 검토합니다.
-
----
-
-## 9. 프로젝트 디렉토리 구조 및 아티팩트 관리
-
-본 프로젝트는 중앙집중식 경로 관리 모듈([utils/paths.py](utils/paths.py))을 통해 모든 아티팩트를 5대 서브폴더로 체계적으로 분리·보존합니다:
-
-```plaintext
-2차프로젝트/
-├── backend/                      # FastAPI 서빙 백엔드 & k8s 매니페스트
-│   ├── app/main.py               # REST API 엔드포인트 & PPO 추론 서빙
-│   └── setting.md                # ConfigMap & 배포 가이드
-├── data/
-│   ├── raw/                      # 원천 데이터 (Blocks, Platens)
-│   ├── standardized/             # 표준화 데이터 및 논문 베이스라인
-│   └── processed/                # 5대 도메인 서브폴더 아티팩트
-│       ├── features/             # featured_blocks.csv, featured_platens.csv
-│       ├── schedules/            # ortools, heuristic_*, ppo, dqn 스케줄 CSV
-│       ├── models/               # best_rl_model.pth, ppo_model.pth, dqn_model.pth
-│       ├── experiments/          # ablation_*, dynamic_scenario_*, mcda_*
-│       └── reports/              # benchmark_metrics.json, *.png 시각화 차트
-├── eda/                          # 탐색적 데이터 분석 & 피처 엔지니어링 파이프라인
-├── modeling/                     # 솔버 및 알고리즘 구현체
-│   ├── solver_ortools.py         # Google OR-Tools CP-SAT 최적화 엔진
-│   ├── baseline_heuristics.py    # 5종 휴리스틱 (EST, SPT, LPT, RUB, RTB)
-│   ├── train_ppo.py              # Action-Masked PPO 강화학습 파이프라인
-│   ├── train_dqn.py              # Action-Masked DQN 강화학습 파이프라인
-│   ├── eval_metrics.py           # 10대 알고리즘 통합 무결성/제약 검증기
-│   ├── benchmark_comparison.py   # 종합 벤치마크 리포트 및 시각화 생성기
-│   ├── model_selection_matrix.py # MCDA 다기준 의사결정 평가 엔진
-│   └── dynamic_scenario_eval.py  # 긴급 5개 블록 동적 배치 시뮬레이터
-├── simulation/                   # OpenAI Gym 기반 정반 시뮬레이션 환경
-├── tests/                        # 무결성 및 결정론적 재현성 단위 테스트
-│   ├── test_simulator.py         # 4대 물리 제약 시뮬레이터 테스트
-│   └── test_ortools_reproducibility.py # OR-Tools SHA-256 해시 일치 검증 테스트
-├── utils/                        # 공통 유틸리티 (paths.py 중앙 경로 관리)
-└── README.md                     # 프로젝트 종합 문서
-```
-
----
-
-## 10. 실행 및 검증 가이드 (Quick Start)
-
-WSL 가상환경(`samsung_pj2`) 활성화 후 아래 명령어들을 통해 단위 테스트 및 전체 파이프라인을 재현할 수 있습니다:
+## 5. 자동화 단위 테스트 (Unit Tests)
 
 ```bash
-# 가상환경 활성화 및 프로젝트 이동
-source /home/kjc/workspace/samsung_project/2차프로젝트/samsung_pj2/bin/activate
-cd /home/kjc/workspace/samsung_project/2차프로젝트
-
-# 1. 전체 단위 테스트 실행 (OR-Tools SHA-256 재현성 + 물리 제약 시뮬레이터, 총 8개 테스트 통과 확인)
-python -m unittest -v tests.test_ortools_reproducibility tests.test_simulator
-
-# 2. EDA 및 피처 엔지니어링 실행
-python eda/eda_and_feature_engineering.py
-
-# 3. Google OR-Tools CP-SAT 결정론적 마스터 플래너 실행
-python modeling/solver_ortools.py
-
-# 4. 5종 휴리스틱 베이스라인 실행
-python modeling/baseline_heuristics.py
-
-# 5. 10대 알고리즘 전수 통합 메트릭 검증
-python modeling/eval_metrics.py
-
-# 6. 종합 벤치마크 리포트 및 차트 생성
-python modeling/benchmark_comparison.py
-
-# 7. MCDA 의사결정 매트릭스 계산
-python modeling/model_selection_matrix.py
-
-# 8. 동적 긴급 블록 배치 시나리오 실측
-python modeling/dynamic_scenario_eval.py
-
-# 9. FastAPI 백엔드 헬스체크 검증
-python -c "from backend.app.main import health_check; print(health_check())"
+pj2
+# 8개 단위 테스트 (OR-Tools SHA-256 결정론적 재현성 + 4대 물리 제약 시뮬레이터 검증)
+python -m unittest -v tests/test_ortools_reproducibility.py tests/test_simulator.py
 ```
 
-### 테스트 실행 결과 기록
-```
-test_deterministic_sha256_repeatability ... ok (Run 1 & Run 2 SHA-256: ea438f343f8402740411a7d9af467f1d3908b7460f788d93809772a7227365f9 MATCH: True)
+```text
+test_deterministic_sha256_repeatability ... ok (SHA-256 MATCH: True)
 test_crane_capacity_constraint ... ok
 test_globally_infeasible_block_rejection ... ok
 test_invalid_action_safe_fallback_and_penalty ... ok
@@ -282,21 +140,41 @@ test_sequential_non_overlapping_schedule ... ok
 test_spatial_constraint ... ok
 test_state_dimension_and_cluster_feature ... ok
 
-----------------------------------------------------------------------
 Ran 8 tests in 34.890s
-
 OK
 ```
 
 ---
 
-## 11. 데이터 및 모델 한계점
+## 6. 디렉토리 구조
 
-1. **명시적 블록 간 선후공정 그래프 부재**:
-   - 현재 데이터셋 및 시뮬레이터는 착수 가능일(Release Date / Earliest Start Date) 제약만 포함하며, 블록 간의 명시적 조립 선후공정 DAG(Directed Acyclic Graph) 제약은 포함하지 않습니다.
-2. **정반 내 다중 블록 2D 네스팅(Geometric Multi-Block Nesting)**:
-   - 현재 모델은 정반 순차 1블록 점유(Sequential Occupancy)를 가정합니다. 정반 내 여러 소형 블록을 동시 배치하는 2D 기하 네스팅 확장은 추후 2D Grid 시뮬레이터 확장이 요구됩니다.
-3. **크레인 동적 주행 궤적 및 간섭(Crane Interference)**:
-   - 정격 하중 한계는 모델링되었으나, 동일 작업 구역(Bay) 내 2대 이상의 크레인이 동시 주행할 때의 물리적 간섭 시간 데이터 부재로 정적 인양 적합성만 검증되었습니다.
-4. **PPO 돌발 시나리오 사전 적응(Curriculum Learning)**:
-   - PPO의 동적 긴급 배정 품질을 개선하기 위해, 에피소드 중간에 긴급 블록을 강제 투입하는 Curriculum Reinforcement Learning 학습 파이프라인 도입이 권장됩니다.
+```plaintext
+2차프로젝트/
+├── airflow/                      # Apache Airflow 3 DAG 파이프라인
+│   └── dags/
+│       ├── shipyard_master_planning_dag.py        # 정기 마스터 플래닝 DAG
+│       └── shipyard_mlops_continuous_training_dag.py # MLOps 지속적 재학습(CT) DAG
+├── backend/                      # FastAPI 고성능 서빙 백엔드
+│   ├── app/main.py               # REST API & PPO 추론 서빙
+│   └── k8s/fastapi-serving.yaml  # Kubernetes 배포 매니페스트
+├── data/                         # 원천 및 도메인별 표준화 데이터
+│   ├── standardized/             # 블록/정반 마스터 및 베이스라인 CSV
+│   └── processed/                # 피처마트, 스케줄, 모델 가중치, 실험 결과
+├── flink/                        # Apache Flink 실시간 스트리밍 엔진
+│   └── apps/
+│       ├── flink_emergency_stream_job.py # 로컬 긴급 블록 스트림 처리기
+│       └── flink_stream_job.yaml         # Kubernetes Flink 스트림 잡 매니페스트
+├── frontend/                     # React 18 실시간 디지털 트윈 대시보드
+│   ├── src/App.js                # 66개 정반 실시간 2D 간트차트 뷰어
+│   └── k8s/react-frontend.yaml   # Kubernetes 배포 매니페스트
+├── kafka/                        # Kafka Strimzi 클러스터 및 프로듀서
+├── mlops/                        # MLOps MLflow 트래킹 및 모델 레지스트리
+│   ├── k8s/mlflow-server.yaml    # MLflow Tracking Server 배포 매니페스트
+│   ├── scripts/run_all_experiments_mlflow.py # 10대 알고리즘 실험 로거
+│   └── tracking/mlflow_logger.py # MLflow SDK 로깅 모듈
+├── modeling/                     # 10대 최적화 및 강화학습 알고리즘 구현체
+├── simulation/                   # OpenAI Gym 기반 정반 물리 시뮬레이션 환경
+├── tests/                        # 무결성 검증 단위 테스트
+├── port_forward_all.sh           # 9대 마이크로서비스 원클릭 포트포워딩 스크립트
+└── README.md                     # 프로젝트 종합 문서
+```

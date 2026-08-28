@@ -13,33 +13,41 @@ data:
     import json
     import time
     import csv
-    import urllib.request
     from kafka import KafkaConsumer
 
     KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap.kafka.svc:9092")
     KAFKA_USER = os.environ.get("KAFKA_USER", "my-app-user")
     KAFKA_PASSWORD = os.environ.get("KAFKA_PASSWORD", "")
     INPUT_TOPIC = "shipyard.emergency.blocks"
-    FASTAPI_URL = os.environ.get("FASTAPI_URL", "http://fastapi-service.default.svc:8000/api/v1/emergency-dispatch")
 
     print("=" * 80)
     print(" [K8s Flink Stream Engine] 긴급 블록 실시간 물리 제약 검증 엔진 가동")
     print(f" - Kafka: {KAFKA_BOOTSTRAP}, Topic: {INPUT_TOPIC}")
     print("=" * 80)
 
-    # 1. 66개 정반 마스터 데이터 로드 (State 초기화)
+    # 1. 66개 정반 마스터 데이터 로드 및 크기 파싱 (State 초기화)
     platens_csv = "/data/platen_information.csv"
     platens_state = []
     with open(platens_csv, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            dim_str = row.get("dimensions", "20*15")
+            if "*" in dim_str:
+                parts = dim_str.split("*")
+                d1, d2 = float(parts[0]), float(parts[1])
+                p_len, p_wid = max(d1, d2), min(d1, d2)
+            else:
+                p_len, p_wid = 25.0, 15.0
+
+            crane_ton = float(row.get("crane_capacity_ton", 100.0) or 100.0)
+
             platens_state.append({
                 "platen_id": row["platen_id"],
                 "platen_name": row.get("platen_name", row["platen_id"]),
-                "platen_length_m": float(row["platen_length_m"]),
-                "platen_width_m": float(row["platen_width_m"]),
-                "crane_capacity_ton": float(row["crane_capacity_ton"]),
-                "platen_area_m2": float(row.get("platen_area_m2", float(row["platen_length_m"])*float(row["platen_width_m"])))
+                "platen_length_m": p_len,
+                "platen_width_m": p_wid,
+                "crane_capacity_ton": crane_ton,
+                "platen_area_m2": round(p_len * p_wid, 2)
             })
     print(f" -> [Flink State] 66개 정반 시설 물리 사양 메모리 상주 완료 ({len(platens_state)}개 정반)")
 
@@ -68,17 +76,18 @@ data:
 
         b_len = float(event.get("length_m", 0))
         b_wid = float(event.get("width_m", 0))
+        b_len_std, b_wid_std = max(b_len, b_wid), min(b_len, b_wid)
         b_weight = float(event.get("weight_ton", 0))
 
-        # 4대 물리 제약 대조
+        # 4대 물리 제약 대조 (가로, 세로, 크레인 인양 용량)
         compatible_platens = []
         for p in platens_state:
-            if (b_len <= p["platen_length_m"]) and (b_wid <= p["platen_width_m"]) and (b_weight <= p["crane_capacity_ton"]):
+            if (b_len_std <= p["platen_length_m"]) and (b_wid_std <= p["platen_width_m"]) and (b_weight <= p["crane_capacity_ton"]):
                 compatible_platens.append(p["platen_id"])
 
         latency_ms = (time.time() - start_time) * 1000
         processed_count += 1
-        print(f" [Flink 처리 {processed_count:02d}] {event['block_id']:<15} | 수용 가능 정반: {len(compatible_platens):2d}개 / 66개 | 검증 지연: {latency_ms:.3f}ms")
+        print(f" [Flink 처리 {processed_count:02d}] {event['block_id']:<15} | 크기: {b_len}x{b_wid}m, {b_weight}톤 | 수용 가능 정반: {len(compatible_platens):2d}개 / 66개 | 검증 지연: {latency_ms:.3f}ms")
 
     consumer.close()
     print("=" * 80)
