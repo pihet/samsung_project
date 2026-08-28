@@ -102,7 +102,7 @@ kubectl exec -n airflow deployment/airflow-scheduler -c scheduler -- airflow dag
   - `/api/schedule/{algorithm}`: 872개 블록 알고리즘별 공정표 조회 (예: `/api/schedule/ortools`, `/api/schedule/ppo`)
   - `/api/leaderboard`: 10대 알고리즘 성능 비교 리더보드 조회
   - `/api/platens`: 66개 작업 정반 시설 마스터 목록 조회
-  - `/api/v1/emergency/stream-publish`: Kafka 실제 발행 + Flink 1ms 물리 검증 + EST/PPO 실시간 배정 스트림 트리거
+  - `/api/v1/emergency/stream-publish`: Kafka 비동기 이벤트 발행 + FastAPI 실시간 물리 검증 및 EST 정반 디스패치
   - `/api/v1/emergency/events`: 실시간 긴급 블록 스트림 이벤트 피드 조회
 
 ---
@@ -157,7 +157,7 @@ OK
 │       |-- shipyard_master_planning_dag.py        # 정기 마스터 플래닝 DAG
 │       `-- shipyard_mlops_continuous_training_dag.py # MLOps 지속적 재학습(CT) DAG
 |-- backend/                      # FastAPI 고성능 서빙 백엔드
-│   |-- app/main.py               # REST API & PPO 추론 서빙
+│   |-- app/main.py               # REST API & 실시간 정반 스케줄링 서빙
 │   `-- k8s/fastapi-serving.yaml  # Kubernetes 배포 매니페스트
 |-- data/                         # 원천 및 도메인별 표준화 데이터
 │   |-- standardized/             # 블록/정반 마스터 및 베이스라인 CSV

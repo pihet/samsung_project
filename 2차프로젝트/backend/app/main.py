@@ -2,8 +2,9 @@
 """
 [조선소 정반 스케줄링 & MLOps 백엔드 FastAPI 서버]
 - 10대 스케줄링 알고리즘 종합 벤치마크 및 리더보드 서빙 (1,254일 / 248개 지연 실측 일치)
-- 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공
-- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (Kafka 비동기 이벤트 스트리밍 발행)
+- 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공 (/api/schedule, /api/schedules 모두 지원)
+- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (배정 즉시 정반 점유일 갱신)
+- Kafka 비동기(Non-blocking) 이벤트 스트리밍 발행 및 Flink 백그라운드 관측 연동
 - 물리적 수용 불가능한 블록에 대한 명시적 INFEASIBLE_REJECTED 처리
 """
 
@@ -38,7 +39,7 @@ KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 app = FastAPI(
     title="Shipyard Smart Scheduling & MLOps API",
     description="FastAPI Backend for 872 Blocks Scheduling, 10-Algorithm Leaderboard & Kafka Stream Dispatcher",
-    version="2.2.0"
+    version="2.3.0"
 )
 
 app.add_middleware(
@@ -146,7 +147,7 @@ def load_assets():
             if p_idx >= 0:
                 platen_busy_until_idx[p_idx] = max(platen_busy_until_idx.get(p_idx, 0), end_d)
 
-    # Kafka Producer 초기화
+    # Kafka Producer 초기화 (빠른 타임아웃으로 블로킹 방지)
     if KafkaProducer is not None:
         try:
             if KAFKA_PASSWORD:
@@ -157,14 +158,16 @@ def load_assets():
                     sasl_plain_username=KAFKA_USER,
                     sasl_plain_password=KAFKA_PASSWORD,
                     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                    request_timeout_ms=500, max_block_ms=500,
+                    request_timeout_ms=500,
+                    max_block_ms=500,
                     api_version=(2, 8, 0)
                 )
             else:
                 kafka_producer_cache = KafkaProducer(
                     bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
                     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                    request_timeout_ms=500, max_block_ms=500
+                    request_timeout_ms=500,
+                    max_block_ms=500
                 )
         except Exception:
             kafka_producer_cache = None
@@ -203,7 +206,7 @@ def get_benchmark_leaderboard():
         {"rank": 9, "algorithm": "Genetic Algorithm (Paper Baseline)", "type": "Metaheuristic Baseline", "makespan_days": 1642, "delayed_blocks": 520, "compute_time_sec": 45.0, "status": "Paper Benchmark"},
         {"rank": 10, "algorithm": "DQN (Paper Baseline)", "type": "Basic Reinforcement Learning", "makespan_days": 1785, "delayed_blocks": 612, "compute_time_sec": 0.08, "status": "Paper Benchmark"}
     ]
-    return leaderboard
+    return {"leaderboard": leaderboard, "total_algorithms": len(leaderboard), "status": "SUCCESS"}
 
 @app.get("/api/platens")
 def get_platens():
@@ -231,11 +234,12 @@ def get_platens():
             "assigned_block_type": row.get('assigned_block_type', 'GENERAL'),
             "current_busy_until_day": busy_until
         })
-    return platens_list
+    return {"platens": platens_list, "total_platens": len(platens_list)}
 
+@app.get("/api/schedule/{algorithm}")
 @app.get("/api/schedules/{algorithm}")
 def get_schedules(algorithm: str, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=1000)):
-    """특정 알고리즘의 872개 블록 스케줄 결과 페이징 조회"""
+    """특정 알고리즘의 872개 블록 스케줄 결과 페이징 조회 (단수형 /api/schedule 및 복수형 /api/schedules 지원)"""
     algo_key = algorithm.lower()
     if algo_key not in schedules_cache:
         raise HTTPException(status_code=404, detail=f"Algorithm '{algorithm}' schedule not found")
@@ -252,7 +256,8 @@ def get_schedules(algorithm: str, page: int = Query(1, ge=1), page_size: int = Q
         "page": page,
         "page_size": page_size,
         "total_pages": (total_records + page_size - 1) // page_size,
-        "items": page_df.to_dict(orient="records")
+        "items": page_df.to_dict(orient="records"),
+        "schedules": page_df.to_dict(orient="records")
     }
 
 class EmergencyBlockRequest(BaseModel):
@@ -272,6 +277,7 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     - Kafka로 비동기(Non-blocking) 이벤트 발행 -> Flink 백그라운드 관측/검증 파이프라인 연동
     - 물리적 수용 불가능한 블록은 명시적으로 INFEASIBLE_REJECTED 반환
     - 후보 정반의 실제 가용일(Earliest Available Day)을 기반으로 시작일(assigned_start) 동적 계산
+    - 배정 성공 직후 해당 정반의 점유 종료일(platen_busy_until)을 즉시 갱신하여 연속 요청 시 비중첩 보장
     """
     t_start = time.time()
     event_id = f"EVT-{int(t_start * 1000)}"
@@ -344,36 +350,38 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
 
     # Step 3: 물리적 제약 위반 블록 명시적 반려 (Infeasible Rejection)
     if not feasible_platens:
-        reject_res = {
+        reject_result = {
+            "event_id": event_id,
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "block_id": req.block_id,
+            "ship_id": req.ship_id,
+            "assigned_platen": "배정 불가 (Infeasible)",
+            "assigned_platen_id": "NONE",
+            "primary_area": "N/A",
+            "start_day": 0,
+            "end_day": 0,
+            "due_day": req.due_date_day,
+            "delay_days": 999,
+            "area_utilization_pct": 0.0,
+            "feasible_candidates_count": 0,
+            "telemetry": {
+                "kafka_published": kafka_sent,
+                "kafka_latency_ms": kafka_latency_ms,
+                "validation_latency_ms": validation_latency_ms,
+                "total_pipeline_latency_ms": total_pipeline_ms
+            }
+        }
+        recent_emergency_events.insert(0, reject_result)
+        if len(recent_emergency_events) > 50:
+            recent_emergency_events.pop()
+
+        return {
             "status": "INFEASIBLE_REJECTED",
             "message": "요청된 블록을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과 또는 정반 크기 초과)",
             "pipeline": "FastAPI Physical Filter -> Infeasible Rejected (Kafka Event Published)",
-            "result": {
-                "event_id": event_id,
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
-                "block_id": req.block_id,
-                "ship_id": req.ship_id,
-                "assigned_platen": "배정 불가 (Infeasible)",
-                "assigned_platen_id": "NONE",
-                "primary_area": "N/A",
-                "start_day": 0,
-                "end_day": 0,
-                "due_day": req.due_date_day,
-                "delay_days": 999,
-                "area_utilization_pct": 0.0,
-                "feasible_candidates_count": 0,
-                "telemetry": {
-                    "kafka_published": kafka_sent,
-                    "kafka_latency_ms": kafka_latency_ms,
-                    "validation_latency_ms": validation_latency_ms,
-                    "total_pipeline_latency_ms": total_pipeline_ms
-                }
-            }
+            "result": reject_result,
+            "dispatch_result": reject_result
         }
-        recent_emergency_events.insert(0, reject_res["result"])
-        if len(recent_emergency_events) > 50:
-            recent_emergency_events.pop()
-        return reject_res
 
     # Step 4: EST(Earliest Start Time) 우선 + 면적 활용률 최적 정반 디스패치
     feasible_platens = sorted(
@@ -381,6 +389,12 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
         key=lambda x: (x["earliest_start_day"], -x["area_utilization_pct"])
     )
     best = feasible_platens[0]
+
+    # 정반 점유 상태 실시간 업데이트 (연속 요청 시 비중첩 보장)
+    best_p_id = best["platen_id"]
+    best_p_idx = best["platen_idx"]
+    platen_busy_until_id[best_p_id] = best["earliest_end_day"]
+    platen_busy_until_idx[best_p_idx] = best["earliest_end_day"]
 
     dispatch_result = {
         "event_id": event_id,
@@ -412,10 +426,14 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
         "status": "SUCCESS",
         "message": f"긴급 블록 {req.block_id}이 정반 {best['platen_name']}에 EST Day {best['earliest_start_day']}로 실시간 디스패치되었습니다.",
         "pipeline": "FastAPI Physical Filter + EST Dispatcher (Kafka Event Published)",
+        "result": dispatch_result,
         "dispatch_result": dispatch_result
     }
 
 @app.get("/api/v1/emergency/events")
 def get_recent_emergency_events():
-    """최근 처리된 긴급 블록 스트림 이벤트 이력 조회"""
-    return recent_emergency_events
+    """최근 처리된 긴급 블록 스트림 이벤트 이력 조회 (객체 래퍼 및 리스트 호환)"""
+    return {
+        "events": recent_emergency_events,
+        "total_events": len(recent_emergency_events)
+    }
