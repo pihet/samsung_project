@@ -142,7 +142,7 @@ function App() {
       {/* Top Navbar */}
       <header className="app-header">
         <div className="header-brand">
-          <div className="logo-icon">⚓</div>
+          <div className="logo-icon"></div>
           <div>
             <h1>Samsung Heavy Industries Smart Shipyard MLOps Platform</h1>
             <p className="subtitle">End-to-End Real-Time Event Streaming & Platen Scheduling Engine</p>
@@ -166,19 +166,19 @@ function App() {
           className={`tab-btn ${activeTab === 'streaming' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('streaming')}
         >
-          ⚡ Real-time Event Streaming (Kafka ➔ Flink ➔ AI)
+           Real-time Event Streaming (Kafka -> Flink -> AI)
         </button>
         <button 
           className={`tab-btn ${activeTab === 'schedule' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('schedule')}
         >
-          📊 Platen Master Schedule (Gantt Table)
+           Platen Master Schedule (Gantt Table)
         </button>
         <button 
           className={`tab-btn ${activeTab === 'benchmark' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('benchmark')}
         >
-          🏆 10-Algorithm Benchmark
+           10-Algorithm Benchmark
         </button>
       </nav>
 
@@ -191,7 +191,7 @@ function App() {
             <div className="section-card">
               <div className="card-header">
                 <h2>Live Emergency Block Stream Dispatcher</h2>
-                <span className="badge badge-accent">Kafka ➔ Flink ➔ FastAPI ➔ Postgres</span>
+                <span className="badge badge-accent">Kafka -> Flink -> FastAPI -> Postgres</span>
               </div>
               <p className="card-desc">
                 현장 돌발 긴급 블록을 <strong>Kafka 실시간 토픽(`shipyard.emergency.blocks`)에 발행</strong>하고, 
@@ -206,19 +206,19 @@ function App() {
                   <span className="step-title">Kafka Event Ingestion</span>
                   <span className="step-sub">shipyard.emergency.blocks</span>
                 </div>
-                <div className="step-arrow">➔</div>
+                <div className="step-arrow">-></div>
                 <div className="step-box step-done">
                   <span className="step-num">2</span>
                   <span className="step-title">Apache Flink Stream Engine</span>
                   <span className="step-sub">66개 정반 물리제약 0.08ms 검증</span>
                 </div>
-                <div className="step-arrow">➔</div>
+                <div className="step-arrow">-></div>
                 <div className="step-box step-done">
                   <span className="step-num">3</span>
                   <span className="step-title">FastAPI Real-time Dispatch</span>
                   <span className="step-sub">EST 0.19s 배정 & PPO Shadow AI</span>
                 </div>
-                <div className="step-arrow">➔</div>
+                <div className="step-arrow">-></div>
                 <div className="step-box step-done">
                   <span className="step-num">4</span>
                   <span className="step-title">PostgreSQL Live Sync</span>
@@ -275,7 +275,7 @@ function App() {
 
               <div className="form-action">
                 <button className="submit-btn stream-action-btn" onClick={handleStreamPublish} disabled={loadingStream}>
-                  {loadingStream ? 'Publishing to Kafka & Processing Flink Stream...' : '⚡ Publish to Kafka & Run Flink/AI Stream Dispatch'}
+                  {loadingStream ? 'Publishing to Kafka & Processing Flink Stream...' : ' Publish to Kafka & Run Flink/AI Stream Dispatch'}
                 </button>
               </div>
 
@@ -283,7 +283,7 @@ function App() {
               {streamResult && (
                 <div className="result-box stream-result-card">
                   <div className="result-header">
-                    <h3>⚡ Live Stream Dispatch Result</h3>
+                    <h3> Live Stream Dispatch Result</h3>
                     <div className="telemetry-badges">
                       <span className="tag tag-kafka">Kafka: {streamResult.telemetry.kafka_latency_ms}ms</span>
                       <span className="tag tag-flink">Flink 66-Platen Check: {streamResult.telemetry.flink_validation_latency_ms}ms</span>
@@ -302,7 +302,7 @@ function App() {
                     </div>
                     <div className="result-item">
                       <span className="res-lbl">Schedule Time Window</span>
-                      <span className="res-val">Day {streamResult.start_day} ➔ Day {streamResult.end_day}</span>
+                      <span className="res-val">Day {streamResult.start_day} -> Day {streamResult.end_day}</span>
                       <span className="res-sub">Target Due: Day {streamResult.due_day}</span>
                     </div>
                     <div className="result-item">
@@ -327,7 +327,7 @@ function App() {
             {/* Live Emergency Feed Sidebar */}
             <div className="section-card feed-card">
               <div className="card-header">
-                <h2>🔴 Live Stream Feed</h2>
+                <h2> Live Stream Feed</h2>
                 <span className="badge badge-live">Live Sync</span>
               </div>
               <p className="card-desc">실시간으로 유입되어 Flink 검증 및 배정이 완료된 이벤트 히스토리</p>
@@ -345,7 +345,7 @@ function App() {
                       <div className="feed-item-body">
                         <span>배정: <strong>{ev.assigned_platen}</strong></span>
                         <span className="feed-badge">Day {ev.start_day}~{ev.end_day}</span>
-                        <span className="feed-latency">⚡ {ev.telemetry?.total_pipeline_latency_ms || 1.2}ms</span>
+                        <span className="feed-latency"> {ev.telemetry?.total_pipeline_latency_ms || 1.2}ms</span>
                       </div>
                     </div>
                   ))

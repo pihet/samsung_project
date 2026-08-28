@@ -5,15 +5,15 @@
 1. 주요 목적:
    - Kafka 'shipyard.emergency.blocks' 토픽으로 유입되는 돌발 긴급 블록 이벤트를
      0.001초(1ms) 단위로 실시간 감지(Consume)합니다.
-   - Flink 메모리 상태(State)에 상주하는 66개 정반 시설의 물리 사양(가로, 세로, 크레인 하중)을
+   - Flink 메모리 상태(State)에 상주하는 66개 정반 시설의 물리 사양(dimensions, 크레인 하중)을
      초고속으로 대조하여, 수용 가능한 '후보 정반 목록(Candidate Platens)'을 태깅합니다.
    - 정제/검증된 스트림을 FastAPI 실시간 배정 엔진으로 전달(Sink)합니다.
 
 2. 실시간 스트리밍 아키텍처 상의 위치:
    - [Kafka: shipyard.emergency.blocks] 
-       ──▶ [Apache Flink 스트림 검증 엔진] 
-       ──▶ [FastAPI 실시간 디스패처 (EST / PPO Shadow)] 
-       ──▶ [PostgreSQL / MLflow]
+       ---> [Apache Flink 스트림 검증 엔진] 
+       ---> [FastAPI 실시간 디스패처 (EST / PPO Shadow)] 
+       ---> [PostgreSQL / MLflow]
 --------------------------------------------------------------------------------
 """
 
@@ -21,7 +21,6 @@ import os
 import sys
 import json
 import time
-import urllib.request
 import pandas as pd
 from kafka import KafkaConsumer
 
@@ -50,11 +49,32 @@ print(f" - FastAPI 디스패치: {FASTAPI_ENDPOINT}")
 print("=" * 80)
 
 # ==============================================================================
-# 3. Flink 메모리 상태(State)용 66개 정반 마스터 데이터 로드
+# 3. Flink 메모리 상태(State)용 66개 정반 마스터 데이터 로드 (dimensions 파싱)
 # ==============================================================================
 platens_file = os.path.join(STANDARDIZED_DIR, "platen_information.csv")
 df_platens = pd.read_csv(platens_file)
-platens_state = df_platens.to_dict(orient="records")
+
+platens_state = []
+for _, row in df_platens.iterrows():
+    dim_str = str(row.get("dimensions", "20*15"))
+    if "*" in dim_str:
+        parts = dim_str.split("*")
+        d1, d2 = float(parts[0]), float(parts[1])
+        p_len, p_wid = max(d1, d2), min(d1, d2)
+    else:
+        p_len, p_wid = 25.0, 15.0
+
+    crane_ton = float(row.get("crane_capacity_ton", 100.0) or 100.0)
+
+    platens_state.append({
+        "platen_id": str(row["platen_id"]),
+        "platen_name": str(row.get("platen_name", row["platen_id"])),
+        "platen_length_m": p_len,
+        "platen_width_m": p_wid,
+        "crane_capacity_ton": crane_ton,
+        "platen_area_m2": round(p_len * p_wid, 2)
+    })
+
 print(f"\n[Flink State 초기화] 66개 정반 시설 물리 사양 메모리 상주 완료 ({len(platens_state)}개 정반)")
 
 # ==============================================================================
@@ -67,29 +87,20 @@ def validate_and_enrich_emergency_block(event: dict) -> dict:
     """
     b_len = float(event.get("length_m", 0))
     b_wid = float(event.get("width_m", 0))
+    b_len_std, b_wid_std = max(b_len, b_wid), min(b_len, b_wid)
     b_weight = float(event.get("weight_ton", 0))
     
     compatible_platens = []
     for platen in platens_state:
-        p_len = float(platen.get("platen_length_m", 0))
-        p_wid = float(platen.get("platen_width_m", 0))
-        p_crane = float(platen.get("crane_capacity_ton", 0))
-        
         # 1) 가로 제약 (블록 가로 <= 정반 가로)
         # 2) 세로 제약 (블록 세로 <= 정반 세로)
         # 3) 크레인 하중 제약 (블록 무게 <= 크레인 정격 용량)
-        if (b_len <= p_len) and (b_wid <= p_wid) and (b_weight <= p_crane):
-            compatible_platens.append({
-                "platen_id": platen.get("platen_id"),
-                "platen_name": platen.get("platen_name"),
-                "max_crane_ton": p_crane,
-                "platen_area_m2": platen.get("platen_area_m2")
-            })
+        if (b_len_std <= platen["platen_length_m"]) and (b_wid_std <= platen["platen_width_m"]) and (b_weight <= platen["crane_capacity_ton"]):
+            compatible_platens.append(platen["platen_id"])
             
-    # 검증 결과 메타데이터 보강
     enriched_event = dict(event)
     enriched_event["compatible_platens_count"] = len(compatible_platens)
-    enriched_event["compatible_platens"] = [p["platen_id"] for p in compatible_platens]
+    enriched_event["compatible_platens"] = compatible_platens
     enriched_event["is_feasible"] = len(compatible_platens) > 0
     enriched_event["flink_processed_at"] = time.time()
     
@@ -112,7 +123,7 @@ try:
         enable_auto_commit=True,
         group_id=f"flink-emergency-stream-group-{int(time.time())}",
         value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-        consumer_timeout_ms=5000 # 5초간 새 메시지 없으면 대기 종료
+        consumer_timeout_ms=5000
     )
 except Exception:
     consumer = KafkaConsumer(
@@ -130,7 +141,6 @@ for msg in consumer:
     start_time = time.time()
     raw_event = msg.value
     
-    # Flink 스트림 실시간 검증 수행
     enriched = validate_and_enrich_emergency_block(raw_event)
     latency_ms = (time.time() - start_time) * 1000
     processed_count += 1
