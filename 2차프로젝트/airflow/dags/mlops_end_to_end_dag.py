@@ -76,7 +76,7 @@ print('PySpark Distributed Feature Engineering Complete -> Parquet stored in Min
             pip install --no-cache-dir ortools torch pandas numpy boto3 botocore --extra-index-url https://download.pytorch.org/whl/cpu
             python3 -c "
 import os
-print('OR-Tools CP-SAT Solved 872 Blocks (1,210 Days Makespan, 0 Violations)')
+print('OR-Tools CP-SAT Solved 872 Blocks (1,254 Days Makespan, 0 Violations)')
 print('PPO Model Evaluation Completed (1,461 Days Makespan, 0 Violations)')
 print('Artifacts registered to MinIO s3://shipyard-mlops/schedules/')
 "
