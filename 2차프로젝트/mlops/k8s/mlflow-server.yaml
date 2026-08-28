@@ -1,0 +1,73 @@
+# mlops/k8s/mlflow-server.yaml
+# [Kubernetes MLflow Tracking Server & Model Registry]
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-server
+  namespace: default
+  labels:
+    app: mlflow-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-server
+  template:
+    metadata:
+      labels:
+        app: mlflow-server
+    spec:
+      containers:
+        - name: mlflow
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              mkdir -p /opt/mlflow
+              echo "Installing MLflow and S3 Drivers..."
+              pip install --no-cache-dir mlflow boto3
+              echo "Starting MLflow Tracking Server on Port 5000..."
+              mlflow server \
+                --backend-store-uri sqlite:////opt/mlflow/mlflow.db \
+                --default-artifact-root s3://mlflow-artifacts/ \
+                --host 0.0.0.0 \
+                --port 5000
+          env:
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "http://minio-service.minio.svc:9000"
+            - name: AWS_ACCESS_KEY_ID
+              value: "minioadmin"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "minioadmin123"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+          ports:
+            - name: http
+              containerPort: 5000
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "4096Mi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+  namespace: default
+  labels:
+    app: mlflow-server
+spec:
+  type: ClusterIP
+  selector:
+    app: mlflow-server
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
