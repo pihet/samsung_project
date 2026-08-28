@@ -1,9 +1,10 @@
 # backend/app/main.py
 """
 [조선소 정반 스케줄링 & MLOps 백엔드 FastAPI 서버]
-- 10대 스케줄링 알고리즘 종합 벤치마크 및 리더보드 서빙 (1,254일 / 248개 지연 실측 일치)
+- 10대 스케줄링 알고리즘 종합 벤치마크 및 리더보드 서빙 (실측치 기준 완벽 정렬: 1,254일 ~ 5,827일)
 - 872개 블록 전수 스케줄 및 66개 정반 메타데이터 제공 (KPI 지표: makespan, delayed_blocks, total_delay_days)
-- 실시간 긴급 블록 물리 제약 검증 및 정반 가용일 기반 EST 디스패처 (스레드 락 기반 동시성 안전)
+- 실시간 긴급 블록 물리 제약 + 블록 타입(CURVED/FLAT) 전용 정반 매칭 + EST 가용일 디스패처
+- 스레드 락(dispatch_lock) 기반 단일 인스턴스 원자적 정반 점유 갱신 (Race Condition 차단)
 - Kafka 비동기(Non-blocking) 이벤트 스트리밍 발행 및 Flink 백그라운드 관측 연동
 - 물리적 수용 불가능한 블록에 대한 명시적 INFEASIBLE_REJECTED 처리
 """
@@ -40,7 +41,7 @@ KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 app = FastAPI(
     title="Shipyard Smart Scheduling & MLOps API",
     description="FastAPI Backend for 872 Blocks Scheduling, 10-Algorithm Leaderboard & Kafka Stream Dispatcher",
-    version="2.5.0"
+    version="2.6.0"
 )
 
 app.add_middleware(
@@ -200,7 +201,7 @@ def health_check():
 @app.get("/api/benchmark")
 @app.get("/api/leaderboard")
 def get_benchmark_leaderboard():
-    """10대 알고리즘 종합 벤치마크 리더보드 (실측 CSV 데이터와 100% 일치)"""
+    """10대 알고리즘 종합 벤치마크 리더보드 (Makespan 오름차순 완전 정렬)"""
     leaderboard = [
         {"rank": 1, "algorithm": "Google OR-Tools CP-SAT (Ours)", "type": "Mathematical Optimization", "makespan_days": 1254, "delayed_blocks": 248, "compute_time_sec": 17.20, "status": "Master Planner"},
         {"rank": 2, "algorithm": "EST Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1254, "delayed_blocks": 248, "compute_time_sec": 0.001, "status": "Fast Fallback"},
@@ -209,8 +210,8 @@ def get_benchmark_leaderboard():
         {"rank": 5, "algorithm": "SPT Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1474, "delayed_blocks": 528, "compute_time_sec": 0.001, "status": "Standard Heuristic"},
         {"rank": 6, "algorithm": "EDDQN (Paper Baseline)", "type": "Research Paper Baseline", "makespan_days": 1529, "delayed_blocks": 480, "compute_time_sec": 0.10, "status": "Paper Benchmark"},
         {"rank": 7, "algorithm": "RTB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1560, "delayed_blocks": 677, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
-        {"rank": 8, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1969, "delayed_blocks": 734, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
-        {"rank": 9, "algorithm": "Genetic Algorithm (Paper Baseline)", "type": "Metaheuristic Baseline", "makespan_days": 1642, "delayed_blocks": 520, "compute_time_sec": 45.0, "status": "Paper Benchmark"},
+        {"rank": 8, "algorithm": "Genetic Algorithm (Paper Baseline)", "type": "Metaheuristic Baseline", "makespan_days": 1642, "delayed_blocks": 520, "compute_time_sec": 45.0, "status": "Paper Benchmark"},
+        {"rank": 9, "algorithm": "RUB Heuristic (Unified Sim)", "type": "Rule-based Heuristic", "makespan_days": 1969, "delayed_blocks": 734, "compute_time_sec": 0.001, "status": "Baseline Heuristic"},
         {"rank": 10, "algorithm": "DQN (Paper Baseline)", "type": "Basic Reinforcement Learning", "makespan_days": 5827, "delayed_blocks": 835, "compute_time_sec": 16.20, "status": "Paper Benchmark"}
     ]
     return {"leaderboard": leaderboard, "total_algorithms": len(leaderboard), "status": "SUCCESS"}
@@ -239,6 +240,7 @@ def get_platens():
             "crane_capacity_ton": float(row.get('crane_capacity_ton', 150.0)),
             "height_limit_m": float(row.get('height_limit_m', 15.0)),
             "assigned_block_type": row.get('assigned_block_type', 'GENERAL'),
+            "block_type": row.get('block_type', 'GENERAL'),
             "current_busy_until_day": busy_until
         })
     return {"platens": platens_list, "total_platens": len(platens_list)}
@@ -286,7 +288,6 @@ def get_schedules(algorithm: str, page: int = Query(1, ge=1), page_size: int = Q
         "page_size": page_size,
         "total_pages": (total_records + page_size - 1) // page_size,
         "schedule": all_records,
-        "schedules": all_records,
         "items": page_df.to_dict(orient="records")
     }
 
@@ -304,8 +305,8 @@ class EmergencyBlockRequest(BaseModel):
 @app.post("/api/v1/emergency/stream-publish")
 def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     """
-    물리 제약 필터링 + 정반 가용일 기반 EST 추천 디스패처
-    - 스레드 락(dispatch_lock) 기반 원자적 정반 배정 및 점유일 갱신 (경쟁 조건 방지)
+    물리 제약 + 블록 타입(곡블록/평블록) 호환성 필터링 + 정반 가용일 기반 EST 추천 디스패처
+    - 스레드 락(dispatch_lock) 기반 원자적 정반 배정 및 점유일 갱신 (Race Condition 방지)
     - Kafka로 비동기(Non-blocking) 이벤트 발행 -> Flink 백그라운드 관측/검증 파이프라인 연동
     - 물리적 수용 불가능한 블록은 명시적으로 INFEASIBLE_REJECTED 반환
     """
@@ -337,10 +338,11 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     t_kafka = time.time()
     kafka_latency_ms = round((t_kafka - t_start) * 1000, 3)
 
-    # Step 2: 66개 정반 물리 제약 (공간 2D 회전 + 크레인 인양 하중) 검증
+    # Step 2: 66개 정반 물리 제약 (공간 2D 회전 + 크레인 인양 하중 + 블록 타입 호환성) 검증
     t_val_start = time.time()
     b_len, b_wid, b_wt = req.length_m, req.width_m, req.weight_ton
     b_max, b_min = max(b_len, b_wid), min(b_len, b_wid)
+    req_btype = str(req.block_type or "FLAT").strip().upper()
 
     feasible_platens = []
     with dispatch_lock:
@@ -353,6 +355,12 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
                 p_max, p_min = max(p_len, p_wid), min(p_len, p_wid)
                 p_id = str(p.get('platen_id', ''))
                 p_idx = int(p.get('platen_idx', idx))
+
+                # 블록 타입(곡블록/평블록) 전용 정반 호환성 검증
+                p_btype = str(p.get('block_type', '')).strip().upper()
+                if p_btype in ['CURVED', 'FLAT'] and req_btype in ['CURVED', 'FLAT']:
+                    if p_btype != req_btype:
+                        continue  # 블록 전용 정반과 타입 불일치 시 제외
 
                 if b_max <= p_max and b_min <= p_min and b_wt <= p_cap:
                     util = min(100.0, ((b_len * b_wid) / max(1.0, p_area)) * 100.0)
@@ -409,8 +417,8 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
 
             return {
                 "status": "INFEASIBLE_REJECTED",
-                "message": "요청된 블록을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과 또는 정반 크기 초과)",
-                "pipeline": "FastAPI Physical Filter -> Infeasible Rejected (Kafka Event Published)",
+                "message": f"요청된 블록({req.block_id}, 타입: {req_btype})을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과, 크기 초과 또는 전용 정반 타입 불일치)",
+                "pipeline": "FastAPI Physical & Type Filter -> Infeasible Rejected (Kafka Event Published)",
                 "result": reject_result,
                 "dispatch_result": reject_result
             }
@@ -456,8 +464,8 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
 
     return {
         "status": "SUCCESS",
-        "message": f"긴급 블록 {req.block_id}이 정반 {best['platen_name']}에 EST Day {best['earliest_start_day']}로 실시간 디스패치되었습니다.",
-        "pipeline": "FastAPI Physical Filter + EST Dispatcher (Kafka Event Published)",
+        "message": f"긴급 블록 {req.block_id}({req_btype})이 정반 {best['platen_name']}에 EST Day {best['earliest_start_day']}로 실시간 디스패치되었습니다.",
+        "pipeline": "FastAPI Physical & Type Filter + EST Dispatcher (Kafka Event Published)",
         "result": dispatch_result,
         "dispatch_result": dispatch_result
     }
