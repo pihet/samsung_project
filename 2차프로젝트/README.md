@@ -7,14 +7,14 @@
 ## 1. 시스템 아키텍처 (System Architecture)
 
 ```
-[조선소 현장 MES] ──▶ [Kafka Broker (Strimzi HA)] ──▶ [Apache Flink] (0.01초 긴급 검증)
+[조선소 현장 MES] ---> [Kafka Broker (Strimzi HA)] ---> [Apache Flink] (0.01초 긴급 검증)
                               │                                  │
-                              ▼                                  ▼
-                     [MinIO S3 레이크하우스] ◀── [PySpark] ◀── [FastAPI Serving]
+                              v                                  v
+                     [MinIO S3 레이크하우스] <--- [PySpark] <--- [FastAPI Serving]
                               │                     (피처마트)          │
-                              ▼                                  ▼
-                     [MLflow Tracking & Registry] ──▶ [React 실시간 대시보드]
-                              ▲
+                              v                                  v
+                     [MLflow Tracking & Registry] ---> [React 실시간 대시보드]
+                              ^
                               │ (정기 자동 재학습)
                      [Apache Airflow 3 CT DAG]
 ```
@@ -92,7 +92,7 @@ kubectl exec -n flink deployment/flink-jobmanager -- ./bin/flink list
 kubectl exec -n airflow deployment/airflow-scheduler -c scheduler -- airflow dags trigger shipyard_mlops_continuous_training_pipeline
 ```
 - 브라우저 접속: [`http://localhost:8080`](http://localhost:8080) (`admin` / `admin`)
-- 파이프라인 순서: 드리프트 감지 ➔ Spark 피처마트 갱신 ➔ PPO 재학습 & MLflow 지표 로깅 ➔ 모델 승격 ➔ FastAPI 서빙 핫 리로드
+- 파이프라인 순서: 드리프트 감지 -> Spark 피처마트 갱신 -> PPO 재학습 & MLflow 지표 로깅 -> 모델 승격 -> FastAPI 서빙 핫 리로드
 
 ---
 
@@ -152,31 +152,31 @@ OK
 
 ```plaintext
 2차프로젝트/
-├── airflow/                      # Apache Airflow 3 DAG 파이프라인
-│   └── dags/
-│       ├── shipyard_master_planning_dag.py        # 정기 마스터 플래닝 DAG
-│       └── shipyard_mlops_continuous_training_dag.py # MLOps 지속적 재학습(CT) DAG
-├── backend/                      # FastAPI 고성능 서빙 백엔드
-│   ├── app/main.py               # REST API & PPO 추론 서빙
-│   └── k8s/fastapi-serving.yaml  # Kubernetes 배포 매니페스트
-├── data/                         # 원천 및 도메인별 표준화 데이터
-│   ├── standardized/             # 블록/정반 마스터 및 베이스라인 CSV
-│   └── processed/                # 피처마트, 스케줄, 모델 가중치, 실험 결과
-├── flink/                        # Apache Flink 실시간 스트리밍 엔진
-│   └── apps/
-│       ├── flink_emergency_stream_job.py # 로컬 긴급 블록 스트림 처리기
-│       └── flink_stream_job.yaml         # Kubernetes Flink 스트림 잡 매니페스트
-├── frontend/                     # React 18 실시간 디지털 트윈 대시보드
-│   ├── src/App.js                # 66개 정반 실시간 2D 간트차트 뷰어
-│   └── k8s/react-frontend.yaml   # Kubernetes 배포 매니페스트
-├── kafka/                        # Kafka Strimzi 클러스터 및 프로듀서
-├── mlops/                        # MLOps MLflow 트래킹 및 모델 레지스트리
-│   ├── k8s/mlflow-server.yaml    # MLflow Tracking Server 배포 매니페스트
-│   ├── scripts/run_all_experiments_mlflow.py # 10대 알고리즘 실험 로거
-│   └── tracking/mlflow_logger.py # MLflow SDK 로깅 모듈
-├── modeling/                     # 10대 최적화 및 강화학습 알고리즘 구현체
-├── simulation/                   # OpenAI Gym 기반 정반 물리 시뮬레이션 환경
-├── tests/                        # 무결성 검증 단위 테스트
-├── port_forward_all.sh           # 9대 마이크로서비스 원클릭 포트포워딩 스크립트
-└── README.md                     # 프로젝트 종합 문서
+|-- airflow/                      # Apache Airflow 3 DAG 파이프라인
+│   `-- dags/
+│       |-- shipyard_master_planning_dag.py        # 정기 마스터 플래닝 DAG
+│       `-- shipyard_mlops_continuous_training_dag.py # MLOps 지속적 재학습(CT) DAG
+|-- backend/                      # FastAPI 고성능 서빙 백엔드
+│   |-- app/main.py               # REST API & PPO 추론 서빙
+│   `-- k8s/fastapi-serving.yaml  # Kubernetes 배포 매니페스트
+|-- data/                         # 원천 및 도메인별 표준화 데이터
+│   |-- standardized/             # 블록/정반 마스터 및 베이스라인 CSV
+│   `-- processed/                # 피처마트, 스케줄, 모델 가중치, 실험 결과
+|-- flink/                        # Apache Flink 실시간 스트리밍 엔진
+│   `-- apps/
+│       |-- flink_emergency_stream_job.py # 로컬 긴급 블록 스트림 처리기
+│       `-- flink_stream_job.yaml         # Kubernetes Flink 스트림 잡 매니페스트
+|-- frontend/                     # React 18 실시간 디지털 트윈 대시보드
+│   |-- src/App.js                # 66개 정반 실시간 2D 간트차트 뷰어
+│   `-- k8s/react-frontend.yaml   # Kubernetes 배포 매니페스트
+|-- kafka/                        # Kafka Strimzi 클러스터 및 프로듀서
+|-- mlops/                        # MLOps MLflow 트래킹 및 모델 레지스트리
+│   |-- k8s/mlflow-server.yaml    # MLflow Tracking Server 배포 매니페스트
+│   |-- scripts/run_all_experiments_mlflow.py # 10대 알고리즘 실험 로거
+│   `-- tracking/mlflow_logger.py # MLflow SDK 로깅 모듈
+|-- modeling/                     # 10대 최적화 및 강화학습 알고리즘 구현체
+|-- simulation/                   # OpenAI Gym 기반 정반 물리 시뮬레이션 환경
+|-- tests/                        # 무결성 검증 단위 테스트
+|-- port_forward_all.sh           # 9대 마이크로서비스 원클릭 포트포워딩 스크립트
+`-- README.md                     # 프로젝트 종합 문서
 ```

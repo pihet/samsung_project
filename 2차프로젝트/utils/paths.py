@@ -5,11 +5,11 @@ Centralized Path Management Module for Shipyard Platen Scheduling Project
 ================================================================================
 - Standardized directory layout:
     data/processed/
-    ├── features/      (featured_blocks.csv, featured_platens.csv)
-    ├── models/        (best_rl_model.pth, ppo_model.pth, dqn_model.pth)
-    ├── schedules/     (ortools, heuristic_*, ppo, dqn schedules)
-    ├── reports/       (benchmark_metrics.json, *.png charts)
-    └── experiments/   (ablation, tuning, dynamic scenarios, MCDA)
+    |-- features/      (featured_blocks.csv, featured_platens.csv)
+    |-- models/        (best_rl_model.pth, ppo_model.pth, dqn_model.pth)
+    |-- schedules/     (ortools, heuristic_*, ppo, dqn schedules)
+    |-- reports/       (benchmark_metrics.json, *.png charts)
+    `-- experiments/   (ablation, tuning, dynamic scenarios, MCDA)
 ================================================================================
 """
 

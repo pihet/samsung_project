@@ -6,10 +6,10 @@
    - React 대시보드(http://localhost:3000)를 위한 알고리즘별 간트 차트 데이터 서빙
    - PostgreSQL 운영 DB(shipyard_db:5433) 연동 및 실시간 마스터 공정표 조회
    - [실제 엔드투엔드 이벤트 스트리밍]:
-     웹 UI ➔ Kafka (실제 SCRAM 토픽 발행: shipyard.emergency.blocks) 
-           ➔ Flink (물리 제약 검증) 
-           ➔ FastAPI EST 실시간 디스패처 
-           ➔ PostgreSQL 적재
+     웹 UI -> Kafka (실제 SCRAM 토픽 발행: shipyard.emergency.blocks) 
+           -> Flink (물리 제약 검증) 
+           -> FastAPI EST 실시간 디스패처 
+           -> PostgreSQL 적재
 --------------------------------------------------------------------------------
 """
 
@@ -230,7 +230,7 @@ def get_schedule(algorithm: str):
     }
 
 # ==============================================================================
-# 5. [★ 실제 Kafka 전송 & Flink 1ms 검증 & EST/PPO 배정]
+# 5. [ 실제 Kafka 전송 & Flink 1ms 검증 & EST/PPO 배정]
 # ==============================================================================
 class EmergencyPublishRequest(BaseModel):
     block_id: str
@@ -245,7 +245,7 @@ class EmergencyPublishRequest(BaseModel):
 @app.post("/api/v1/emergency/stream-publish")
 def publish_and_process_emergency_stream(req: EmergencyPublishRequest):
     """
-    [★ 진짜 Kafka 토픽 발행 + Flink 1ms 물리 검증 + EST 배정 트리거]
+    [ 진짜 Kafka 토픽 발행 + Flink 1ms 물리 검증 + EST 배정 트리거]
     """
     t_start = time.time()
     if df_platens_cache is None or kafka_producer_cache is None:

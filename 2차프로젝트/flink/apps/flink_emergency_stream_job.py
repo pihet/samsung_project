@@ -11,9 +11,9 @@
 
 2. 실시간 스트리밍 아키텍처 상의 위치:
    - [Kafka: shipyard.emergency.blocks] 
-       ──▶ [Apache Flink 스트림 검증 엔진] 
-       ──▶ [FastAPI 실시간 디스패처 (EST / PPO Shadow)] 
-       ──▶ [PostgreSQL / MLflow]
+       ---> [Apache Flink 스트림 검증 엔진] 
+       ---> [FastAPI 실시간 디스패처 (EST / PPO Shadow)] 
+       ---> [PostgreSQL / MLflow]
 --------------------------------------------------------------------------------
 """
 

@@ -23,9 +23,9 @@ spec:
             - /bin/bash
             - -c
             - |
-              echo "📦 Installing required ML packages..."
+              echo " Installing required ML packages..."
               pip install --no-cache-dir boto3 pandas pyarrow tensorflow
-              echo "🚀 Starting Deep Learning Training Script..."
+              echo " Starting Deep Learning Training Script..."
               python /opt/scripts/train.py
           env:
             - name: MINIO_ENDPOINT
