@@ -7,7 +7,7 @@
 ## 1. 시스템 아키텍처 (System Architecture)
 
 ```
-[조선소 현장 MES] ---> [Kafka Broker (Strimzi HA)] ---> [Apache Flink] (0.01초 긴급 검증)
+[조선소 현장 MES] ---> [FastAPI 초저지연 EST 추천] ---> [Kafka Broker (비동기 이벤트 스트리밍)] ---> [Apache Flink] (백그라운드 관측·검증)
                               │                                  │
                               v                                  v
                      [MinIO S3 레이크하우스] <--- [PySpark] <--- [FastAPI Serving]
@@ -111,7 +111,7 @@ kubectl exec -n airflow deployment/airflow-scheduler -c scheduler -- airflow dag
 
 | 알고리즘 구분 | 모델 / 휴리스틱 명칭 | 총 소요 기간 (Makespan) | 납기 지연 블록 | 정반 가동률 | 연산 / 추론 시간 | 운영 권장 역할 |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **전역 최적화** | **Google OR-Tools CP-SAT** | **1,210일** | **246개** | **28.4%** | 17.2초 | **야간 정기 마스터 플래너** |
+| **전역 최적화** | **Google OR-Tools CP-SAT** | **1,254일** | **248개** | **28.4%** | 17.2초 | **야간 정기 마스터 플래너** |
 | **강화학습 (RL)** | **Action-Masked PPO** | **1,371일** | **602개** | **26.0%** | **0.65초** | **실시간 AI Shadow 디스패처 (Model Registry 등록)** |
 | **강화학습 (RL)** | Action-Masked DQN | 5,827일 | 835개 | 6.1% | 16.2초 | 가치 기반 비교 베이스라인 |
 | **규칙 기반** | Heuristic EST (최우선 착수) | 1,254일 | 248개 | 28.4% | 0.001초 | 실시간 운영 기본 디스패처 |
