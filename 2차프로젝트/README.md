@@ -99,9 +99,11 @@ kubectl exec -n airflow deployment/airflow-scheduler -c scheduler -- airflow dag
 ### 3-6. 디지털 트윈 프론트엔드 및 서빙 검증
 - **React 시각화 대시보드**: [`http://localhost:3000`](http://localhost:3000)
 - **FastAPI API 문서**: [`http://localhost:8000/docs`](http://localhost:8000/docs)
-  - `/api/schedule/master`: 872개 블록 마스터 공정표 조회
-  - `/api/schedule/realtime`: PPO 기반 실시간 추론 스케줄링 (지연시간 < 1초)
-  - `/api/emergency/inject`: 돌발 긴급 블록 Kafka 이벤트 발행
+  - `/api/schedule/{algorithm}`: 872개 블록 알고리즘별 공정표 조회 (예: `/api/schedule/ortools`, `/api/schedule/ppo`)
+  - `/api/leaderboard`: 10대 알고리즘 성능 비교 리더보드 조회
+  - `/api/platens`: 66개 작업 정반 시설 마스터 목록 조회
+  - `/api/v1/emergency/stream-publish`: Kafka 실제 발행 + Flink 1ms 물리 검증 + EST/PPO 실시간 배정 스트림 트리거
+  - `/api/v1/emergency/events`: 실시간 긴급 블록 스트림 이벤트 피드 조회
 
 ---
 
