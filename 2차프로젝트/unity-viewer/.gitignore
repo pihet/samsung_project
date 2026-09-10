@@ -1,0 +1,38 @@
+# ── Unity 에디터가 생성하는 산출물 (커밋 금지) ─────────────────────
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Assets/ 하위 .meta 는 Unity 가 자산 참조(GUID)를 담는 파일이라 반드시 커밋한다.
+# 무시하면 프리팹/씬/인스펙터 연결이 다른 사람 환경에서 전부 끊긴다.
+
+# IDE / 빌드 부산물
+.vs/
+.vscode/
+.vsconfig
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 크래시 리포트
+sysinfo.txt
+crashlog*.txt

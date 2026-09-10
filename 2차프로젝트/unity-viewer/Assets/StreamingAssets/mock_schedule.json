@@ -1,0 +1,916 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-09-10T09:00:00+09:00",
+  "project_epoch": "2018-01-01T00:00:00+09:00",
+  "algorithm": "mock-ortools",
+  "coordinate_system": {
+    "units": "meter",
+    "up_axis": "y",
+    "ground_plane": "xz"
+  },
+  "kpi": {
+    "makespan_days": 278,
+    "delayed_blocks": 3,
+    "total_delay_days": 12
+  },
+  "platens": [
+    {
+      "platen_id": "PPT1000A",
+      "platen_idx": 0,
+      "platen_name": "Bay10-N-1",
+      "primary_area": "Flat-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 28.0,
+      "width": 18.0,
+      "height": 12.0,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "FLAT"
+    },
+    {
+      "platen_id": "PPT1001A",
+      "platen_idx": 1,
+      "platen_name": "Bay10-N-2",
+      "primary_area": "Curved-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 32.0,
+      "width": 20.0,
+      "height": 12.0,
+      "position": [
+        45.0,
+        0.0,
+        0.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "CURVED"
+    },
+    {
+      "platen_id": "PPT1002A",
+      "platen_idx": 2,
+      "platen_name": "Bay10-N-3",
+      "primary_area": "Flat-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 36.0,
+      "width": 22.0,
+      "height": 12.0,
+      "position": [
+        90.0,
+        0.0,
+        0.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "FLAT"
+    },
+    {
+      "platen_id": "PPT1003A",
+      "platen_idx": 3,
+      "platen_name": "Bay10-N-4",
+      "primary_area": "Curved-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 40.0,
+      "width": 20.0,
+      "height": 12.0,
+      "position": [
+        135.0,
+        0.0,
+        0.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "CURVED"
+    },
+    {
+      "platen_id": "PPT1004A",
+      "platen_idx": 4,
+      "platen_name": "Bay10-S-1",
+      "primary_area": "Flat-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 30.0,
+      "width": 18.0,
+      "height": 12.0,
+      "position": [
+        0.0,
+        0.0,
+        35.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "ANY"
+    },
+    {
+      "platen_id": "PPT1005A",
+      "platen_idx": 5,
+      "platen_name": "Bay10-S-2",
+      "primary_area": "Flat-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 34.0,
+      "width": 22.0,
+      "height": 12.0,
+      "position": [
+        45.0,
+        0.0,
+        35.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "FLAT"
+    },
+    {
+      "platen_id": "PPT1006A",
+      "platen_idx": 6,
+      "platen_name": "Bay10-S-3",
+      "primary_area": "Curved-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 38.0,
+      "width": 20.0,
+      "height": 12.0,
+      "position": [
+        90.0,
+        0.0,
+        35.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "CURVED"
+    },
+    {
+      "platen_id": "PPT1007A",
+      "platen_idx": 7,
+      "platen_name": "Bay10-S-4",
+      "primary_area": "Flat-Bay",
+      "secondary_area": "Bay-10m",
+      "length": 40.0,
+      "width": 22.0,
+      "height": 12.0,
+      "position": [
+        135.0,
+        0.0,
+        35.0
+      ],
+      "crane_capacity_ton": 240.0,
+      "accepts_block_type": "FLAT"
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "B0001",
+      "seq_id": 1,
+      "ship_id": "H1080",
+      "platform_id": "PPT1000A",
+      "block_type": "FLAT",
+      "length": 7.4,
+      "width": 6.8,
+      "height": 3.0,
+      "position": [
+        1.63,
+        0.0,
+        1.6
+      ],
+      "status": "completed",
+      "start_time": "2018-01-21T00:00:00+09:00",
+      "end_time": "2018-02-16T00:00:00+09:00",
+      "due_time": "2018-02-26T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0002",
+      "seq_id": 2,
+      "ship_id": "H1080",
+      "platform_id": "PPT1000A",
+      "block_type": "FLAT",
+      "length": 7.4,
+      "width": 6.8,
+      "height": 4.5,
+      "position": [
+        10.3,
+        0.0,
+        1.6
+      ],
+      "status": "completed",
+      "start_time": "2018-02-19T00:00:00+09:00",
+      "end_time": "2018-03-25T00:00:00+09:00",
+      "due_time": "2018-04-04T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0003",
+      "seq_id": 3,
+      "ship_id": "H1080",
+      "platform_id": "PPT1000A",
+      "block_type": "FLAT",
+      "length": 7.4,
+      "width": 6.8,
+      "height": 6.0,
+      "position": [
+        18.97,
+        0.0,
+        1.6
+      ],
+      "status": "completed",
+      "start_time": "2018-03-28T00:00:00+09:00",
+      "end_time": "2018-05-08T00:00:00+09:00",
+      "due_time": "2018-05-18T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0004",
+      "seq_id": 4,
+      "ship_id": "H1080",
+      "platform_id": "PPT1000A",
+      "block_type": "FLAT",
+      "length": 7.4,
+      "width": 6.8,
+      "height": 3.0,
+      "position": [
+        1.63,
+        0.0,
+        9.6
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-11T00:00:00+09:00",
+      "end_time": "2018-06-09T00:00:00+09:00",
+      "due_time": "2018-06-19T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0005",
+      "seq_id": 5,
+      "ship_id": "H1080",
+      "platform_id": "PPT1000A",
+      "block_type": "FLAT",
+      "length": 7.4,
+      "width": 6.8,
+      "height": 4.5,
+      "position": [
+        10.3,
+        0.0,
+        9.6
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-12T00:00:00+09:00",
+      "end_time": "2018-08-03T00:00:00+09:00",
+      "due_time": "2018-08-13T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0006",
+      "seq_id": 6,
+      "ship_id": "H1081",
+      "platform_id": "PPT1001A",
+      "block_type": "CURVED",
+      "length": 8.5,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.75,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-02-02T00:00:00+09:00",
+      "end_time": "2018-02-28T00:00:00+09:00",
+      "due_time": "2018-03-10T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0007",
+      "seq_id": 7,
+      "ship_id": "H1081",
+      "platform_id": "PPT1001A",
+      "block_type": "CURVED",
+      "length": 8.5,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        11.75,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-03-03T00:00:00+09:00",
+      "end_time": "2018-04-06T00:00:00+09:00",
+      "due_time": "2018-04-16T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0008",
+      "seq_id": 8,
+      "ship_id": "H1081",
+      "platform_id": "PPT1001A",
+      "block_type": "CURVED",
+      "length": 8.5,
+      "width": 7.6,
+      "height": 6.0,
+      "position": [
+        21.75,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-04-09T00:00:00+09:00",
+      "end_time": "2018-05-20T00:00:00+09:00",
+      "due_time": "2018-05-30T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0009",
+      "seq_id": 9,
+      "ship_id": "H1081",
+      "platform_id": "PPT1001A",
+      "block_type": "CURVED",
+      "length": 8.5,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.75,
+        0.0,
+        10.7
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-23T00:00:00+09:00",
+      "end_time": "2018-06-21T00:00:00+09:00",
+      "due_time": "2018-07-01T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0010",
+      "seq_id": 10,
+      "ship_id": "H1081",
+      "platform_id": "PPT1001A",
+      "block_type": "CURVED",
+      "length": 8.5,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        11.75,
+        0.0,
+        10.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-24T00:00:00+09:00",
+      "end_time": "2018-08-15T00:00:00+09:00",
+      "due_time": "2018-08-25T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0011",
+      "seq_id": 11,
+      "ship_id": "H1082",
+      "platform_id": "PPT1002A",
+      "block_type": "FLAT",
+      "length": 9.6,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.87,
+        0.0,
+        1.75
+      ],
+      "status": "completed",
+      "start_time": "2018-02-14T00:00:00+09:00",
+      "end_time": "2018-03-12T00:00:00+09:00",
+      "due_time": "2018-03-22T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0012",
+      "seq_id": 12,
+      "ship_id": "H1082",
+      "platform_id": "PPT1002A",
+      "block_type": "FLAT",
+      "length": 9.6,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        13.2,
+        0.0,
+        1.75
+      ],
+      "status": "completed",
+      "start_time": "2018-03-15T00:00:00+09:00",
+      "end_time": "2018-04-18T00:00:00+09:00",
+      "due_time": "2018-04-28T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0013",
+      "seq_id": 13,
+      "ship_id": "H1082",
+      "platform_id": "PPT1002A",
+      "block_type": "FLAT",
+      "length": 9.6,
+      "width": 8.5,
+      "height": 6.0,
+      "position": [
+        24.53,
+        0.0,
+        1.75
+      ],
+      "status": "in_progress",
+      "start_time": "2018-04-21T00:00:00+09:00",
+      "end_time": "2018-06-01T00:00:00+09:00",
+      "due_time": "2018-05-28T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0014",
+      "seq_id": 14,
+      "ship_id": "H1082",
+      "platform_id": "PPT1002A",
+      "block_type": "FLAT",
+      "length": 9.6,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.87,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-04T00:00:00+09:00",
+      "end_time": "2018-07-03T00:00:00+09:00",
+      "due_time": "2018-07-13T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0015",
+      "seq_id": 15,
+      "ship_id": "H1082",
+      "platform_id": "PPT1002A",
+      "block_type": "FLAT",
+      "length": 9.6,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        13.2,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-07-06T00:00:00+09:00",
+      "end_time": "2018-08-27T00:00:00+09:00",
+      "due_time": "2018-09-06T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0016",
+      "seq_id": 16,
+      "ship_id": "H1083",
+      "platform_id": "PPT1003A",
+      "block_type": "CURVED",
+      "length": 10.8,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.93,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-02-26T00:00:00+09:00",
+      "end_time": "2018-03-24T00:00:00+09:00",
+      "due_time": "2018-04-03T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0017",
+      "seq_id": 17,
+      "ship_id": "H1083",
+      "platform_id": "PPT1003A",
+      "block_type": "CURVED",
+      "length": 10.8,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        14.6,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-03-27T00:00:00+09:00",
+      "end_time": "2018-04-30T00:00:00+09:00",
+      "due_time": "2018-05-10T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0018",
+      "seq_id": 18,
+      "ship_id": "H1083",
+      "platform_id": "PPT1003A",
+      "block_type": "CURVED",
+      "length": 10.8,
+      "width": 7.6,
+      "height": 6.0,
+      "position": [
+        27.27,
+        0.0,
+        1.7
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-03T00:00:00+09:00",
+      "end_time": "2018-06-13T00:00:00+09:00",
+      "due_time": "2018-06-23T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0019",
+      "seq_id": 19,
+      "ship_id": "H1083",
+      "platform_id": "PPT1003A",
+      "block_type": "CURVED",
+      "length": 10.8,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.93,
+        0.0,
+        10.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-16T00:00:00+09:00",
+      "end_time": "2018-07-15T00:00:00+09:00",
+      "due_time": "2018-07-25T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0020",
+      "seq_id": 20,
+      "ship_id": "H1083",
+      "platform_id": "PPT1003A",
+      "block_type": "CURVED",
+      "length": 10.8,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        14.6,
+        0.0,
+        10.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-07-18T00:00:00+09:00",
+      "end_time": "2018-09-08T00:00:00+09:00",
+      "due_time": "2018-09-18T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0021",
+      "seq_id": 21,
+      "ship_id": "H1080",
+      "platform_id": "PPT1004A",
+      "block_type": "FLAT",
+      "length": 7.9,
+      "width": 6.8,
+      "height": 3.0,
+      "position": [
+        1.72,
+        0.0,
+        1.6
+      ],
+      "status": "completed",
+      "start_time": "2018-03-10T00:00:00+09:00",
+      "end_time": "2018-04-05T00:00:00+09:00",
+      "due_time": "2018-04-15T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0022",
+      "seq_id": 22,
+      "ship_id": "H1080",
+      "platform_id": "PPT1004A",
+      "block_type": "FLAT",
+      "length": 7.9,
+      "width": 6.8,
+      "height": 4.5,
+      "position": [
+        11.05,
+        0.0,
+        1.6
+      ],
+      "status": "completed",
+      "start_time": "2018-04-08T00:00:00+09:00",
+      "end_time": "2018-05-12T00:00:00+09:00",
+      "due_time": "2018-05-22T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0023",
+      "seq_id": 23,
+      "ship_id": "H1080",
+      "platform_id": "PPT1004A",
+      "block_type": "FLAT",
+      "length": 7.9,
+      "width": 6.8,
+      "height": 6.0,
+      "position": [
+        20.38,
+        0.0,
+        1.6
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-15T00:00:00+09:00",
+      "end_time": "2018-06-25T00:00:00+09:00",
+      "due_time": "2018-07-05T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0024",
+      "seq_id": 24,
+      "ship_id": "H1080",
+      "platform_id": "PPT1004A",
+      "block_type": "FLAT",
+      "length": 7.9,
+      "width": 6.8,
+      "height": 3.0,
+      "position": [
+        1.72,
+        0.0,
+        9.6
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-28T00:00:00+09:00",
+      "end_time": "2018-07-27T00:00:00+09:00",
+      "due_time": "2018-08-06T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0025",
+      "seq_id": 25,
+      "ship_id": "H1080",
+      "platform_id": "PPT1004A",
+      "block_type": "FLAT",
+      "length": 7.9,
+      "width": 6.8,
+      "height": 4.5,
+      "position": [
+        11.05,
+        0.0,
+        9.6
+      ],
+      "status": "waiting",
+      "start_time": "2018-07-30T00:00:00+09:00",
+      "end_time": "2018-09-20T00:00:00+09:00",
+      "due_time": "2018-09-30T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0026",
+      "seq_id": 26,
+      "ship_id": "H1081",
+      "platform_id": "PPT1005A",
+      "block_type": "FLAT",
+      "length": 9.1,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.78,
+        0.0,
+        1.75
+      ],
+      "status": "completed",
+      "start_time": "2018-03-22T00:00:00+09:00",
+      "end_time": "2018-04-17T00:00:00+09:00",
+      "due_time": "2018-04-13T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0027",
+      "seq_id": 27,
+      "ship_id": "H1081",
+      "platform_id": "PPT1005A",
+      "block_type": "FLAT",
+      "length": 9.1,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        12.45,
+        0.0,
+        1.75
+      ],
+      "status": "completed",
+      "start_time": "2018-04-20T00:00:00+09:00",
+      "end_time": "2018-05-24T00:00:00+09:00",
+      "due_time": "2018-06-03T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0028",
+      "seq_id": 28,
+      "ship_id": "H1081",
+      "platform_id": "PPT1005A",
+      "block_type": "FLAT",
+      "length": 9.1,
+      "width": 8.5,
+      "height": 6.0,
+      "position": [
+        23.12,
+        0.0,
+        1.75
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-27T00:00:00+09:00",
+      "end_time": "2018-07-07T00:00:00+09:00",
+      "due_time": "2018-07-17T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0029",
+      "seq_id": 29,
+      "ship_id": "H1081",
+      "platform_id": "PPT1005A",
+      "block_type": "FLAT",
+      "length": 9.1,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.78,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-07-10T00:00:00+09:00",
+      "end_time": "2018-08-08T00:00:00+09:00",
+      "due_time": "2018-08-18T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0030",
+      "seq_id": 30,
+      "ship_id": "H1081",
+      "platform_id": "PPT1005A",
+      "block_type": "FLAT",
+      "length": 9.1,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        12.45,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-08-11T00:00:00+09:00",
+      "end_time": "2018-10-02T00:00:00+09:00",
+      "due_time": "2018-10-12T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0031",
+      "seq_id": 31,
+      "ship_id": "H1082",
+      "platform_id": "PPT1006A",
+      "block_type": "CURVED",
+      "length": 10.2,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.9,
+        0.0,
+        1.7
+      ],
+      "status": "completed",
+      "start_time": "2018-04-03T00:00:00+09:00",
+      "end_time": "2018-04-29T00:00:00+09:00",
+      "due_time": "2018-05-09T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0032",
+      "seq_id": 32,
+      "ship_id": "H1082",
+      "platform_id": "PPT1006A",
+      "block_type": "CURVED",
+      "length": 10.2,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        13.9,
+        0.0,
+        1.7
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-02T00:00:00+09:00",
+      "end_time": "2018-06-05T00:00:00+09:00",
+      "due_time": "2018-06-15T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0033",
+      "seq_id": 33,
+      "ship_id": "H1082",
+      "platform_id": "PPT1006A",
+      "block_type": "CURVED",
+      "length": 10.2,
+      "width": 7.6,
+      "height": 6.0,
+      "position": [
+        25.9,
+        0.0,
+        1.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-08T00:00:00+09:00",
+      "end_time": "2018-07-19T00:00:00+09:00",
+      "due_time": "2018-07-29T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0034",
+      "seq_id": 34,
+      "ship_id": "H1082",
+      "platform_id": "PPT1006A",
+      "block_type": "CURVED",
+      "length": 10.2,
+      "width": 7.6,
+      "height": 3.0,
+      "position": [
+        1.9,
+        0.0,
+        10.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-07-22T00:00:00+09:00",
+      "end_time": "2018-08-20T00:00:00+09:00",
+      "due_time": "2018-08-30T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0035",
+      "seq_id": 35,
+      "ship_id": "H1082",
+      "platform_id": "PPT1006A",
+      "block_type": "CURVED",
+      "length": 10.2,
+      "width": 7.6,
+      "height": 4.5,
+      "position": [
+        13.9,
+        0.0,
+        10.7
+      ],
+      "status": "waiting",
+      "start_time": "2018-08-23T00:00:00+09:00",
+      "end_time": "2018-10-14T00:00:00+09:00",
+      "due_time": "2018-10-24T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0036",
+      "seq_id": 36,
+      "ship_id": "H1083",
+      "platform_id": "PPT1007A",
+      "block_type": "FLAT",
+      "length": 10.8,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.93,
+        0.0,
+        1.75
+      ],
+      "status": "completed",
+      "start_time": "2018-04-15T00:00:00+09:00",
+      "end_time": "2018-05-11T00:00:00+09:00",
+      "due_time": "2018-05-21T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0037",
+      "seq_id": 37,
+      "ship_id": "H1083",
+      "platform_id": "PPT1007A",
+      "block_type": "FLAT",
+      "length": 10.8,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        14.6,
+        0.0,
+        1.75
+      ],
+      "status": "in_progress",
+      "start_time": "2018-05-14T00:00:00+09:00",
+      "end_time": "2018-06-17T00:00:00+09:00",
+      "due_time": "2018-06-27T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0038",
+      "seq_id": 38,
+      "ship_id": "H1083",
+      "platform_id": "PPT1007A",
+      "block_type": "FLAT",
+      "length": 10.8,
+      "width": 8.5,
+      "height": 6.0,
+      "position": [
+        27.27,
+        0.0,
+        1.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-06-20T00:00:00+09:00",
+      "end_time": "2018-07-31T00:00:00+09:00",
+      "due_time": "2018-08-10T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0039",
+      "seq_id": 39,
+      "ship_id": "H1083",
+      "platform_id": "PPT1007A",
+      "block_type": "FLAT",
+      "length": 10.8,
+      "width": 8.5,
+      "height": 3.0,
+      "position": [
+        1.93,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-08-03T00:00:00+09:00",
+      "end_time": "2018-09-01T00:00:00+09:00",
+      "due_time": "2018-08-28T00:00:00+09:00"
+    },
+    {
+      "block_id": "B0040",
+      "seq_id": 40,
+      "ship_id": "H1083",
+      "platform_id": "PPT1007A",
+      "block_type": "FLAT",
+      "length": 10.8,
+      "width": 8.5,
+      "height": 4.5,
+      "position": [
+        14.6,
+        0.0,
+        11.75
+      ],
+      "status": "waiting",
+      "start_time": "2018-09-04T00:00:00+09:00",
+      "end_time": "2018-10-26T00:00:00+09:00",
+      "due_time": "2018-11-05T00:00:00+09:00"
+    }
+  ]
+}
