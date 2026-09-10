@@ -1,0 +1,37 @@
+# ── Unity 에디터가 생성하는 산출물 (커밋 금지) ─────────────────────
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Asset meta 는 Unity 가 임포트 시 생성한다. 프로젝트 생성 전에는 커밋하지 않는다.
+# (프로젝트 생성 후 Assets/ 하위 .meta 는 정상 커밋 대상이 되므로 아래 줄을 지운다.)
+*.meta
+
+# IDE / 빌드 부산물
+.vs/
+.vsconfig
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 크래시 리포트
+sysinfo.txt
+crashlog*.txt
