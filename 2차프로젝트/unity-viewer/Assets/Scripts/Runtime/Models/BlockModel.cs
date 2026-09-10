@@ -21,7 +21,10 @@ namespace ShipyardTwin.Runtime
         /// <summary>X: length, Y: height, Z: width (m).</summary>
         public Vector3 Size { get; }
 
-        /// <summary>배정 정반 원점 기준 로컬 오프셋(m).</summary>
+        /// <summary>
+        /// 배정 정반 원점(바닥 최소 코너) 기준, 블록 발자국의 **최소 코너**(m).
+        /// X/Z 는 판 위 위치, Y 는 판 상면으로부터의 추가 높이(보통 0).
+        /// </summary>
         public Vector3 LocalPosition { get; }
 
         public BlockLifecycleStatus DeclaredStatus { get; }

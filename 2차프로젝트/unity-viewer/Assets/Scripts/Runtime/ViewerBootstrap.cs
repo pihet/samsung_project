@@ -26,6 +26,12 @@ namespace ShipyardTwin.Runtime
 
             loader.Loaded += OnLoaded;
             loader.LoadFailed += OnLoadFailed;
+
+            // 로드가 끝난 뒤에 활성화된 경우에도 클럭이 초기화되도록 재생한다.
+            if (loader.IsLoaded)
+            {
+                OnLoaded(loader.Dataset);
+            }
         }
 
         private void OnDisable()

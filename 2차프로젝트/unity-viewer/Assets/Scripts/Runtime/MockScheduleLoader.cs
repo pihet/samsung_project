@@ -48,7 +48,11 @@ namespace ShipyardTwin.Runtime
         private IEnumerator LoadRoutine()
         {
             var path = Path.Combine(Application.streamingAssetsPath, fileName);
-            var uri = path.Contains("://") ? path : "file://" + path;
+
+            // Android 등에서는 이미 jar:file://... 형태라 그대로 쓴다.
+            // 그 외에는 new Uri(...).AbsoluteUri 로 플랫폼별 구분자·드라이브 문자를
+            // 올바른 file:/// 형태로 만든다("file://" 문자열 접합은 Windows 에서 깨진다).
+            var uri = path.Contains("://") ? path : new Uri(path).AbsoluteUri;
 
             string json = null;
             using (var request = UnityWebRequest.Get(uri))

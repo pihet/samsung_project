@@ -15,16 +15,22 @@ namespace ShipyardTwin.Runtime
     /// 검증 항목:
     ///  - platen_id / block_id: 비어 있지 않음, 중복 없음
     ///  - block.platform_id: 존재하는 정반을 가리킴
-    ///  - position: 길이 3, 모든 성분이 유한값
+    ///  - position: 있으면 길이 3 + 유한값. 정반은 생략 가능(격자 폴백), 블록은 필수
+    ///  - block_type: FLAT | CURVED (정반 accepts_block_type 은 ANY 도 허용)
     ///  - status: waiting | in_progress | completed
     ///  - start_time / end_time: 오프셋 명시, 파싱 가능, start &lt; end
     ///  - length / width / height: 0 보다 큼
+    ///  - project_epoch: 생략 가능. 있으면 오프셋 명시 필수
     /// </summary>
     public static class SchedulePayloadMapper
     {
         // "Z" 또는 "+09:00" / "-05:30" 형태의 오프셋이 문자열 끝에 있어야 한다.
         private static readonly Regex OffsetSuffix =
             new Regex(@"(Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant);
+
+        /// <summary>project_epoch 가 없을 때 쓰는 기본 기준일. 실데이터 최초 착공 연도에 맞춘다.</summary>
+        private static readonly DateTimeOffset DefaultEpoch =
+            new DateTimeOffset(2018, 1, 1, 0, 0, 0, TimeSpan.FromHours(9));
 
         public static ScheduleDataset Map(SchedulePayloadDto dto)
         {
@@ -35,8 +41,13 @@ namespace ShipyardTwin.Runtime
 
             var errors = new List<string>();
 
-            var epoch = ParseTimestamp(dto.ProjectEpoch, "payload.project_epoch", errors)
-                        ?? new DateTimeOffset(2018, 1, 1, 0, 0, 0, TimeSpan.FromHours(9));
+            // project_epoch 는 확장 연동용 메타다. 없으면 기본값을 쓰고 오류로 보지 않는다.
+            var epoch = DefaultEpoch;
+            if (!string.IsNullOrWhiteSpace(dto.ProjectEpoch))
+            {
+                epoch = ParseTimestamp(dto.ProjectEpoch, "payload.project_epoch", errors)
+                        ?? DefaultEpoch;
+            }
 
             var platens = MapPlatens(dto.Platens, errors, out var platenIds);
             var blocks = MapBlocks(dto.Blocks, platenIds, errors);
@@ -87,7 +98,13 @@ namespace ShipyardTwin.Runtime
                 }
 
                 var size = ReadSize(d.Length, d.Height, d.Width, ctx, errors);
-                var origin = ReadPosition(d.Position, $"{ctx}.position", errors);
+
+                // 정반 좌표는 생략 가능하다. null 이 "좌표 없음" 센티널이며,
+                // (0,0,0) 은 원점에 놓인 정상 좌표로 취급한다.
+                var hasOrigin = d.Position != null;
+                var origin = hasOrigin
+                    ? ReadPosition(d.Position, $"{ctx}.position", errors)
+                    : Vector3.zero;
 
                 result.Add(new PlatenModel(
                     d.PlatenId,
@@ -97,8 +114,9 @@ namespace ShipyardTwin.Runtime
                     d.SecondaryArea ?? string.Empty,
                     size,
                     origin,
+                    hasOrigin,
                     (float)d.CraneCapacityTon,
-                    NormalizeBlockType(d.AcceptsBlockType, allowAny: true)));
+                    NormalizeAcceptsBlockType(d.AcceptsBlockType, ctx, errors)));
             }
 
             return result;
@@ -158,6 +176,7 @@ namespace ShipyardTwin.Runtime
 
                 var size = ReadSize(d.Length, d.Height, d.Width, ctx, errors);
                 var localPos = ReadPosition(d.Position, $"{ctx}.position", errors);
+                var blockType = NormalizeBlockType(d.BlockType, ctx, errors);
 
                 var start = ParseTimestamp(d.StartTime, $"{ctx}.start_time", errors);
                 var end = ParseTimestamp(d.EndTime, $"{ctx}.end_time", errors);
@@ -181,7 +200,7 @@ namespace ShipyardTwin.Runtime
                         d.SeqId,
                         d.ShipId ?? string.Empty,
                         d.PlatformId,
-                        NormalizeBlockType(d.BlockType, allowAny: false),
+                        blockType,
                         size,
                         localPos,
                         status,
@@ -261,20 +280,36 @@ namespace ShipyardTwin.Runtime
             return value;
         }
 
-        private static string NormalizeBlockType(string raw, bool allowAny)
+        /// <summary>블록 형상. 값을 날조하지 않고, 계약 밖이면 그대로 보존한 뒤 오류로 보고한다.</summary>
+        private static string NormalizeBlockType(string raw, string ctx, List<string> errors)
         {
             var v = (raw ?? string.Empty).Trim().ToUpperInvariant();
-            switch (v)
+            if (v == "FLAT" || v == "CURVED")
             {
-                case "FLAT":
-                case "CURVED":
-                    return v;
-                case "ANY":
-                case "":
-                    return allowAny ? "ANY" : "FLAT";
-                default:
-                    return v; // 알 수 없는 값은 보존한다(색상/필터에서 처리).
+                return v;
             }
+
+            errors.Add($"{ctx}: block_type '{raw}' 는 허용되지 않습니다. 허용값: FLAT, CURVED.");
+            return v;
+        }
+
+        /// <summary>정반이 수용하는 형상. 생략은 ANY 로 본다(제약 없음).</summary>
+        private static string NormalizeAcceptsBlockType(string raw, string ctx, List<string> errors)
+        {
+            var v = (raw ?? string.Empty).Trim().ToUpperInvariant();
+            if (v.Length == 0)
+            {
+                return "ANY";
+            }
+
+            if (v == "FLAT" || v == "CURVED" || v == "ANY")
+            {
+                return v;
+            }
+
+            errors.Add($"{ctx}: accepts_block_type '{raw}' 는 허용되지 않습니다. " +
+                       "허용값: FLAT, CURVED, ANY.");
+            return v;
         }
     }
 }

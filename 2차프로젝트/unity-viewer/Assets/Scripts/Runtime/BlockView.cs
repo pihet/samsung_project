@@ -24,6 +24,15 @@ namespace ShipyardTwin.Runtime
             _mpb = new MaterialPropertyBlock();
         }
 
+        /// <summary>Renderer 만 껐다 켠다. GameObject 는 살려둬 참조와 이름 검색을 유지한다.</summary>
+        public void SetVisible(bool visible)
+        {
+            if (_renderer != null && _renderer.enabled != visible)
+            {
+                _renderer.enabled = visible;
+            }
+        }
+
         /// <summary>MaterialPropertyBlock 으로 색만 바꿔 배칭을 깨지 않는다(URP Lit/Unlit 대응).</summary>
         public void SetColor(Color color)
         {

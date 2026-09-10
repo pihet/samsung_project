@@ -132,6 +132,18 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 | `Block.prefab` | `3D Object > Cube`, 이름 `Block`, Scale (1,1,1) | **Renderer 1개 이상 필수**. URP Lit/Unlit 머티리얼 1개 |
 
 두 큐브를 각각 `Assets/Prefabs/` 로 드래그해 프리팹화한 뒤 하이어라키에서 삭제한다.
+피벗은 기본값(중심) 그대로 둔다 — 스포너가 코너 기준 좌표를 중심 피벗에 맞게 보정한다.
+
+스폰 시 만들어지는 계층은 다음과 같다. **정반 루트는 스케일 1인 빈 오브젝트**이고
+`Platen.prefab` 은 그 자식 `Slab` 이 된다. 루트를 스케일하지 않아야 자식 블록의
+위치·크기가 정반 크기만큼 곱해지지 않는다.
+
+```
+Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코너)
+├─ Slab                      (Platen.prefab, scale = 28 × 0.5 × 18)
+├─ Block_B0001_H1080         (Block.prefab,  scale = 7.4 × 3 × 6.8)
+└─ ...
+```
 
 ### 4-2. 머티리얼
 
@@ -184,9 +196,12 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 ### 4-5. 실행
 
 - **Play**. 콘솔에 `[MockScheduleLoader] 로드 완료: 정반 8개, 블록 40개 ...` 가 뜨면 성공.
-- 정반 8개 판이 4×2 격자로, 각 판 위에 블록 큐브들이 올라간다.
+- 정반 8개 판이 4×2 격자(X 0~135m, Z 0~35m)로 놓이고, 각 판 위에 블록 5개가
+  판 안쪽 **3×2 셀 격자**로 서로 겹치지 않게 올라간다.
 - 시간이 흐르며(1초=1일) 블록 색이 회색(착수 전)→파랑(작업 중)→초록(완료) 으로 바뀌고,
   납기 초과 블록은 빨강 기가 섞인다.
+- 실제로는 정반 하나에 동시에 블록 하나만 올라간다. 물리적으로 정직한 화면을 보려면
+  `ViewerSceneBindings.hideOutsideTimeWindow` 를 켠다(작업 기간 밖 블록이 숨겨짐).
 - 깨진 입력 시험: `Assets/StreamingAssets/mock_schedule.json` 사본에서
   어떤 블록의 `platform_id` 를 없는 값으로 바꾸면
   `[MockScheduleLoader] 스케줄 페이로드 검증 실패: 1건 - block 'Bxxxx': platform_id '...' 에 해당하는 정반이 없습니다.` 로 중단된다.
@@ -199,8 +214,9 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
   REST 라면 `UnityWebRequest.Get("http://localhost:8000/api/schedule/ortools")` 로 바꾸고,
   응답(JSON 열: 정수 경과일, `platen_id`, 좌표 없음)을 §2 표대로 이 계약 형태로 어댑팅한다.
 - 파서·매퍼·`ScheduleDataset`·스포너·색상 갱신은 규모/소스에 비의존이라 그대로 재사용.
-- 좌표 없는 정반은 `ViewerSceneBindings.useLayoutFallbackForZeroOrigin` + `YardLayoutConfig`
-  격자 폴백이 처리한다. 블록 로컬 오프셋(2D 팩킹)은 별도 작업 필요.
+- 좌표 없는 정반은 JSON 에서 `position` **필드를 생략**하면 `YardLayoutConfig` 격자 폴백이
+  `platen_idx` 로 자동 배치한다(`[0,0,0]` 은 폴백이 아니라 원점 좌표로 취급).
+  블록 로컬 오프셋(2D 팩킹)은 별도 작업 필요.
 - WebSocket 은 증분 업데이트 채널을 추가하고 `ScheduleDataset` 을 부분 갱신 + 스포너에 diff 적용하는
   후속 설계가 필요(현재 범위 밖).
 
@@ -213,15 +229,27 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 - **실행한 정적 검증**
   - `python3 -m json.tool mock_schedule.json` → 유효.
   - Mock 계약 자기검증 스크립트(매퍼 규칙 미러: 중복/누락 ID, 없는 `platform_id`,
-    `position` 길이·유한값, `status` 열거, 시각 오프셋·파싱·`start<end`, 규모 5~10 / 30~50)
+    `position` 길이·유한값, `status` 열거, 시각 오프셋·파싱·`start<end`, 규모 5~10 / 30~50,
+    **판 경계 안 배치 + 같은 정반 블록 쌍별 비중첩**)
     → `OK: 8 platens, 40 blocks, all contract checks pass`.
+    겹침 검증기는 좌표를 일부러 충돌시킨 역테스트로 실제 검출됨을 확인.
   - C# 18개 파일 괄호/중괄호 균형 및 외부 의존성 스캔 → 균형 OK, 외부 의존성은 `Newtonsoft.Json` 만.
+- **1차 코드리뷰 반영 (블로킹 3건 포함 10건 수정 완료)**
+  - 정반 루트를 스케일해 자식 블록 좌표·크기가 곱해지던 버그 → 스케일 1인 빈 루트 + 자식 `Slab` 구조로 교체.
+  - 중심 피벗 vs 코너 기준 좌표 불일치 → `position` 은 항상 최소 코너로 확정하고 스포너가 절반 보정.
+  - Mock 블록 5개가 공간적으로 겹치던 문제 → 3×2 셀 격자 배치 + `hideOutsideTimeWindow` 옵션.
+  - `project_epoch` 선택 필드화(죽은 `??` 제거), `position` 생략을 좌표 없음 센티널로 사용,
+    `Loaded` 재생, `block_type` 날조 제거, Windows `file://` URI, `Clear()` 범위 축소,
+    `schema_version` 메이저 검증.
 - **실행하지 못한 검증과 위험**
-  - **Unity 컴파일 / 플레이 모드 미검증**: 이 환경에 Unity 에디터가 없어 `UnityEngine`·`UnityEngine.Networking`
-    참조가 있는 코드는 컴파일할 수 없다. C# 문법·API 사용은 검토했으나
-    실제 URP `_BaseColor` 반영, `UnityWebRequest` 의 `file://` 경로 처리, 인스펙터 직렬화는
-    에디터에서 최초 1회 확인이 필요하다.
+  - **Unity 컴파일 / 플레이 모드 여전히 미검증**: 이 환경에 Unity 에디터가 없어
+    `UnityEngine`·`UnityEngine.Networking` 참조 코드는 컴파일할 수 없다.
+    위 수정도 **정적 검토만 거쳤고 실행으로 확인되지 않았다.**
+    특히 스폰 계층 구조, URP `_BaseColor` 반영, `UnityWebRequest` 경로 처리, 인스펙터 직렬화는
+    에디터 최초 실행에서 반드시 눈으로 확인해야 한다.
   - **`.meta` GUID 미생성**: 스크립트 간 참조는 네임스페이스 기반이라 문제없지만,
     프리팹/SO/씬은 에디터에서 만들어야 하므로 인스펙터 연결은 사용자가 수행한다.
-  - **좌표·팩킹 부재**: Mock 좌표는 시각화 검증용 임의값이다. 실데이터엔 좌표가 없어
-    확장 시 팩킹 단계가 없으면 블록이 겹쳐 보일 수 있다(§2 C3).
+  - **좌표·팩킹 부재**: Mock 좌표는 시각화용으로 이 저장소가 만들어낸 값이다.
+    실데이터엔 좌표가 없어(§2 C3) 확장 시 2D 팩킹 단계가 없으면 블록이 겹쳐 보인다.
+  - **정반당 동시 1블록 제약은 화면에 강제되지 않음**: 기본값은 40개를 모두 보여주는
+    교육용 표시다. 물리적 정직함이 필요하면 `hideOutsideTimeWindow` 를 켠다.

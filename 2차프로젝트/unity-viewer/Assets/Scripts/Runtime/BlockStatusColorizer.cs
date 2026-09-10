@@ -70,6 +70,10 @@ namespace ShipyardTwin.Runtime
                 }
 
                 var phase = view.Model.EvaluatePhase(now);
+
+                // 실제로는 정반 하나에 동시에 한 블록만 올라간다. 옵션을 켜면
+                // 작업 기간 밖 블록을 숨겨 물리적으로 정직한 화면을 만든다.
+                view.SetVisible(!bindings.hideOutsideTimeWindow || phase == TimelinePhase.Active);
                 view.SetColor(palette.Resolve(phase, view.Model.IsDelayed));
             }
         }
