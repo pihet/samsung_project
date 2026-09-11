@@ -8,13 +8,15 @@
 - 확장: 66개 정반 / 872개 블록, REST(`/api/schedule/{algorithm}`, `/api/platens`) 또는 WebSocket 연동.
 - 첫 구현은 **DOTween 없이 Coroutine** 만 사용.
 
-> **중요:** 이 저장소에는 Unity 에디터가 생성해야 하는 `ProjectSettings/`, `Packages/`,
-> `*.meta`, 씬(`.unity`), 프리팹(`.prefab`), `.asset` 을 **의도적으로 넣지 않았다**.
-> 아래 절차대로 에디터에서 직접 생성한다. 버전 문자열을 임의로 꾸며낸 파일은 없다.
+> **현재 상태:** Unity 에디터 생성물이 모두 커밋되어 있다.
+> `ProjectSettings/`, `Packages/`, `*.meta`, 씬 `Assets/Scenes/Viewer.unity`,
+> 프리팹 2개, ScriptableObject 자산 3개가 저장소에 들어 있다.
+> **클론 후 에디터로 열면 바로 Play 가 된다.** 아래 §3·§4 는 이 자산들을 처음 만든 절차
+> 기록이며, 새로 셋업하거나 자산이 깨졌을 때만 따르면 된다.
 
 ---
 
-## 1. 지금 들어 있는 것 (커밋된 초안)
+## 1. 지금 들어 있는 것 (커밋된 내용)
 
 ```
 unity-viewer/
@@ -47,8 +49,18 @@ unity-viewer/
     ├── StreamingAssets/
     │   ├── mock_schedule.json        ← 정반 8 / 블록 40 Mock (schema_version 1.0.0)
     │   └── mock_schedule.schema.md   ← 전송 계약 상세
-    ├── Prefabs/README.md             ← 에디터에서 만들 프리팹 안내 (자산 자리)
-    └── ScriptableObjects/README.md   ← 에디터에서 만들 .asset 안내 (자산 자리)
+    ├── Prefabs/                      ← 에디터에서 만든 프리팹 (커밋됨)
+    │   ├── Platen.prefab              (판 slab 원본, 단위 큐브)
+    │   ├── Block.prefab               (블록 원본, 단위 큐브 + MeshRenderer)
+    │   └── README.md                  (만드는 절차)
+    ├── ScriptableObjects/            ← 에디터에서 만든 설정 자산 (커밋됨)
+    │   ├── StatusColorPalette.asset
+    │   ├── YardLayoutConfig.asset
+    │   ├── ViewerSceneBindings.asset  (프리팹·팔레트·레이아웃 참조 연결 완료)
+    │   └── README.md                  (만드는 절차)
+    └── Scenes/
+        ├── Viewer.unity               ← 실행할 씬. ViewerRoot 1개에 컴포넌트 5개
+        └── SampleScene.unity          (URP 템플릿 기본 씬, 미사용)
 ```
 
 ### 책임 분리 (요청 3)
@@ -88,7 +100,11 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 
 ---
 
-## 3. Unity 프로젝트 생성 (에디터에서 직접)
+## 3. Unity 프로젝트 생성 (완료됨 — 최초 셋업 기록)
+
+> 이 절은 이미 수행되어 `ProjectSettings/`, `Packages/manifest.json` 이 커밋돼 있다.
+> 커밋된 버전은 Unity `6000.5.10f1`, URP `17.5.0`, `com.unity.nuget.newtonsoft-json` `3.2.1` 이다.
+> 기존 클론에서는 이 절을 건너뛴다.
 
 ### 3-1. Unity 6 LTS + URP 프로젝트 생성
 
@@ -120,7 +136,11 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 
 ---
 
-## 4. 에디터 자산 생성 및 연결
+## 4. 에디터 자산 생성 및 연결 (완료됨 — 최초 셋업 기록)
+
+> 프리팹 2개, ScriptableObject 자산 3개, `Assets/Scenes/Viewer.unity` 가 모두 커밋돼 있다.
+> 기존 클론에서는 `Viewer.unity` 를 열고 Play 를 누르면 된다.
+> 머티리얼 `Platen_Mat`/`Block_Mat` 은 만들지 않았고 URP 기본 Lit 머티리얼을 쓴다(§4-2 는 선택).
 
 ### 4-1. 프리팹 2개 — `Assets/Prefabs/`
 
@@ -191,7 +211,7 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
    | | `clock` | `ViewerRoot` |
 
 4. 카메라: 야드 격자(약 X 0~135m, Z 0~35m)를 내려다보도록 `Main Camera` 를
-   position `(60, 90, -20)`, rotation `(60, 0, 0)` 정도로 둔다. Directional Light 는 템플릿 기본 유지.
+   position `(88, 90, -20)`, rotation `(60, 0, 0)` 으로 둔다(커밋된 `Viewer.unity` 의 값). Directional Light 는 템플릿 기본 유지.
 
 ### 4-5. 실행
 
@@ -241,15 +261,28 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
   - `project_epoch` 선택 필드화(죽은 `??` 제거), `position` 생략을 좌표 없음 센티널로 사용,
     `Loaded` 재생, `block_type` 날조 제거, Windows `file://` URI, `Clear()` 범위 축소,
     `schema_version` 메이저 검증.
-- **실행하지 못한 검증과 위험**
-  - **Unity 컴파일 / 플레이 모드 여전히 미검증**: 이 환경에 Unity 에디터가 없어
-    `UnityEngine`·`UnityEngine.Networking` 참조 코드는 컴파일할 수 없다.
-    위 수정도 **정적 검토만 거쳤고 실행으로 확인되지 않았다.**
-    특히 스폰 계층 구조, URP `_BaseColor` 반영, `UnityWebRequest` 경로 처리, 인스펙터 직렬화는
-    에디터 최초 실행에서 반드시 눈으로 확인해야 한다.
-  - **`.meta` GUID 미생성**: 스크립트 간 참조는 네임스페이스 기반이라 문제없지만,
-    프리팹/SO/씬은 에디터에서 만들어야 하므로 인스펙터 연결은 사용자가 수행한다.
+- **에디터 실행 검증 완료** (2026-09-11, Unity `6000.5.10f1` / URP `17.5.0` / Windows DX12)
+  - 스크립트 18개 **컴파일 통과**. 컴파일 에러 0건.
+  - `Assets/Scenes/Viewer.unity` Play 결과 콘솔:
+    `[MockScheduleLoader] 로드 완료: 정반 8개, 블록 40개, 알고리즘 'mock-ortools',
+    기간 2018-01-21T00:00:00+09:00 ~ 2018-10-26T00:00:00+09:00` 및
+    `[YardBlockSpawner] 정반 8개, 블록 40개 스폰 완료.`
+  - **스폰 계층 구조 확인**: 정반 루트 8개가 4×2 격자로 생성되고, 각 루트 아래
+    `Slab` 과 블록 5개가 판 경계 안 3×2 자리에 겹치지 않게 배치됨.
+    1차 코드리뷰의 스케일 오염 블로킹 버그가 실행에서 재발하지 않음을 확인.
+  - **URP `_BaseColor` 색 갱신 확인**: 시간 경과에 따라 회색 → 파랑 → 초록 전환,
+    납기 초과 블록에 `delayedTint` 혼합이 화면에 반영됨.
+  - **`UnityWebRequest` Windows 경로 처리 확인**: `file://` URI 로 StreamingAssets 로드 성공.
+  - **인스펙터 직렬화 확인**: `ViewerSceneBindings` 슬롯 4개와
+    씬 내 컴포넌트 상호 참조 5곳이 저장 후에도 유지됨.
+  - 콘솔에 뜨는 `NoSubscription` 에러는 `com.unity.ai.assistant` 패키지 문제이며 이 뷰어와 무관하다.
+- **남은 위험**
   - **좌표·팩킹 부재**: Mock 좌표는 시각화용으로 이 저장소가 만들어낸 값이다.
     실데이터엔 좌표가 없어(§2 C3) 확장 시 2D 팩킹 단계가 없으면 블록이 겹쳐 보인다.
   - **정반당 동시 1블록 제약은 화면에 강제되지 않음**: 기본값은 40개를 모두 보여주는
     교육용 표시다. 물리적 정직함이 필요하면 `hideOutsideTimeWindow` 를 켠다.
+  - **실데이터 66정반 / 872블록 확장은 미수행·미검증**: §5 는 설계안일 뿐 코드가 없다.
+  - **머티리얼 미생성**: 판과 블록이 URP 기본 Lit 머티리얼을 공유한다. 색 구분은 런타임
+    `MaterialPropertyBlock` 에만 의존하므로, 판 자체 색을 바꾸려면 `Platen_Mat` 을 따로 만들어야 한다.
+  - **자동화 테스트 없음**: 검증은 정적 스크립트와 위 육안 확인뿐이다. Unity Test Framework
+    기반 EditMode 테스트는 아직 없다.
