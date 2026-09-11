@@ -211,7 +211,7 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
    | | `clock` | `ViewerRoot` |
 
 4. 카메라: 야드 격자(약 X 0~135m, Z 0~35m)를 내려다보도록 `Main Camera` 를
-   position `(60, 90, -20)`, rotation `(60, 0, 0)` 정도로 둔다. Directional Light 는 템플릿 기본 유지.
+   position `(88, 90, -20)`, rotation `(60, 0, 0)` 으로 둔다(커밋된 `Viewer.unity` 의 값). Directional Light 는 템플릿 기본 유지.
 
 ### 4-5. 실행
 
