@@ -5,7 +5,7 @@
 독립적이며 기존 서비스·React 대시보드에 전혀 영향을 주지 않는다.
 
 - 초기: **Mock JSON**(정반 8개, 블록 40개)으로 로드→검증→스폰→시간 기준 색상 갱신 파이프라인 검증.
-- 확장: 66개 정반 / 872개 블록, REST(`/api/schedule/{algorithm}`, `/api/platens`) 또는 WebSocket 연동.
+- 확장(구현 완료): 66개 정반 / 872개 블록. 백엔드 `GET /api/viewer/schedule/{algorithm}` 연동.
 - 첫 구현은 **DOTween 없이 Coroutine** 만 사용.
 
 > **현재 상태:** Unity 에디터 생성물이 모두 커밋되어 있다.
@@ -88,15 +88,31 @@ Mock 계약은 설계 원칙을 그대로 따르되, 확장 시 아래 갭을 �
 | --- | --- | --- | --- |
 | C1 | 블록에 `start_time`/`end_time`(오프셋 포함 시각) | `data/processed/schedules/ortools_scheduling_results.csv` 는 **정수 경과일** `planned_start_day`, `planned_end_day` (예: 368). 시각·타임존 없음 | Mock 은 계약대로 ISO-8601+offset 사용. 확장 어댑터가 `project_epoch + N일` 로 변환. 계약에 `project_epoch` 필드 포함 |
 | C2 | `status` ∈ {`waiting`,`in_progress`,`completed`} | CSV `status` 는 `ALLOCATED` (단일값). 생명주기 구분 없음 | 계약은 3-상태 문자열을 검증하되, **화면 색상은 `start`/`end` + 현재 시각으로 계산**(`TimelinePhase`). 확장 어댑터가 `ALLOCATED` → 시각 기준으로 `status` 를 채움 |
-| C3 | 블록·정반에 `position` (길이 3) | 실데이터에 **좌표가 전혀 없음**. 정반 야드 위치도, 블록 2D 팩킹 좌표도 없음 | Mock 이 좌표를 부여. 확장 시 정반은 `YardLayoutConfig` 격자 폴백, 블록 로컬 오프셋은 별도 팩킹 단계 필요(현재 범위 밖) |
+| C3 | 블록·정반에 `position` (길이 3) | 실데이터에 **좌표가 전혀 없음**. 정반 야드 위치도, 블록 2D 팩킹 좌표도 없음 | Mock 이 좌표를 부여. 확장에서는 정반 `position` 을 생략해 `YardLayoutConfig` 격자 폴백에 맡기고, 블록은 정반 중앙에 놓는다. **2D 팩킹은 불필요**(§2-1 참조) |
 | C4 | 정반 `length`/`width`/`height` | `platen_information.csv` 는 `dimensions` 를 `"5*10"` 문자열로 보관. `featured_platens.csv` 에만 `platen_length_m`/`platen_width_m`. 높이는 `height_limit_m`(작업 높이 한계) | 계약은 숫자 `length`/`width`/`height` 사용. `height` 는 `height_limit_m` 의미로 문서화. 어댑터가 `"L*W"` 파싱 |
 | C5 | 블록이 참조하는 정반 키 이름 `platform_id` | 실데이터/`/api/platens` 는 `platen_id` / `platen_idx` | 계약은 블록에 `platform_id`(요청 명세대로), 정반에 `platen_id` 를 쓰고 **`platform_id` → `platen_id` 참조**로 검증. 어댑터가 매핑 |
 | C6 | `block_type` 열거 | `block_information.csv` 는 `FLAT`/`CURVED`, 그러나 메타 정의서엔 `平`/`曲`, 정반 `assigned_block_type` 은 `110.0` 같은 숫자 | 계약은 `FLAT`/`CURVED`(정반은 `ANY` 허용). 알 수 없는 값은 매퍼가 보존만 함 |
 | C7 | 알고리즘별 스키마 동일 | `ortools_*` 는 `due_date_day`, `ppo_*` 는 `due_day`+`lead_time_days`+`reward` 로 **열이 다름** | 어댑터를 알고리즘별로 두거나 공통 필드만 사용 |
 | C8 | 규모 | 실데이터 정반 66 / 블록 872 (확인함). 초기 Mock 은 8 / 40 | 계약·코드는 규모 비의존. 로더 교체만으로 확장 |
 
-정반↔블록 공간 비중첩(4대 제약 중 #3)은 **좌표가 있어야 검증 가능**하므로 현재 범위 밖이다.
+정반↔블록 공간 비중첩(4대 제약 중 #3)은 **좌표가 있어야 검증 가능**하므로 Mock 범위 밖이다.
 Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다.
+
+### 2-1. 확장 구현 중 추가로 확인한 사실
+
+실데이터를 직접 검사해 §2 표의 전제 하나를 뒤집고, 새 결함 3개를 찾았다.
+
+| 발견 | 근거 | 영향 |
+| --- | --- | --- |
+| **2D 팩킹이 필요 없다** | 8개 알고리즘 전부에서 같은 정반의 기간 겹침 쌍이 **0건**. 어느 순간에도 정반 위 블록은 최대 1개 | 블록을 정반 중앙에 놓으면 충분하다. 팩킹 단계를 짜지 않았다 |
+| **블록이 정반에 다 들어간다** | 872개 중 786개가 그대로, 86개는 90도 회전하면 수용. 못 들어가는 블록 0개 | 축 정렬 박스라 `length`/`width` 교환이 곧 회전이다 |
+| **`block_id` 가 고유하지 않다** | 872행에 고유 `block_id` 97개, `(ship_id, block_id)` 조합도 174개뿐. 유일 키는 `seq_id` | 매퍼가 중복 id 를 거부하므로 표시용 id 를 합성해야 한다 |
+| **블록 치수가 REST 에 없다** | 스케줄 CSV 에는 날짜·정반 배정만 있고 `length_m`/`width_m` 은 `block_information.csv` 에만 존재 | 어댑터가 `seq_id` 로 조인한다(872건 전부 매칭) |
+| **블록 높이 컬럼이 아예 없다** | `length_m`, `width_m`, `weight_ton` 뿐 | 표시용 공칭 3.0m 를 쓰고 데이터 출처가 아님을 응답에 명시 |
+| **수치 컬럼에 단위 문자가 섞여 있다** | `height_limit_m` 에 `'9M'`, 문자열 컬럼 결측은 `NaN` | 이 때문에 기존 `/api/platens` 가 500 을 내고 있었다. 관용 파서로 수정 |
+
+경과일 0의 기준일도 확정했다. `planned_start_day == 0` 인 블록의 `assembly_start_date` 가
+2018-03-03 이므로 이 날이 `project_epoch` 다. 스케줄은 1254일까지 이어진다.
 
 ---
 
@@ -228,17 +244,44 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
 
 ---
 
-## 5. 확장 (66 정반 / 872 블록, REST·WebSocket)
+## 5. 확장 (66 정반 / 872 블록) — 구현 완료
 
-- **교체 지점은 한 곳**: `MockScheduleLoader.LoadRoutine()` 의 바이트 획득부.
-  REST 라면 `UnityWebRequest.Get("http://localhost:8000/api/schedule/ortools")` 로 바꾸고,
-  응답(JSON 열: 정수 경과일, `platen_id`, 좌표 없음)을 §2 표대로 이 계약 형태로 어댑팅한다.
-- 파서·매퍼·`ScheduleDataset`·스포너·색상 갱신은 규모/소스에 비의존이라 그대로 재사용.
-- 좌표 없는 정반은 JSON 에서 `position` **필드를 생략**하면 `YardLayoutConfig` 격자 폴백이
-  `platen_idx` 로 자동 배치한다(`[0,0,0]` 은 폴백이 아니라 원점 좌표로 취급).
-  블록 로컬 오프셋(2D 팩킹)은 별도 작업 필요.
-- WebSocket 은 증분 업데이트 채널을 추가하고 `ScheduleDataset` 을 부분 갱신 + 스포너에 diff 적용하는
-  후속 설계가 필요(현재 범위 밖).
+### 5-1. 어댑터는 백엔드에 있다
+
+`backend/app/main.py` 의 `GET /api/viewer/schedule/{algorithm}` 이 §1 의 전송 계약을
+그대로 내보낸다. 원시 `GET /api/schedule/{algorithm}` 과 혼동하면 안 된다. 그쪽은 CSV
+레코드를 가공 없이 돌려주므로 계약과 형태가 다르다.
+
+서버에서 끝내는 일은 경과일을 ISO 시각으로 바꾸는 것, `seq_id` 로 블록 치수를 조인하는 것,
+알고리즘별 납기 컬럼 차이를 흡수하는 것, 블록을 정반 중앙에 놓는 것이다. 상세 대응표는
+`Assets/StreamingAssets/mock_schedule.schema.md` 의 확장 절에 있다.
+
+서버에 둔 이유는 블록 치수가 어느 REST 응답에도 없어서 어느 쪽이든 백엔드를 건드려야 했고,
+조인·날짜 연산·컬럼 분기를 C# 으로 옮기면 에디터 없이는 검증할 수 없기 때문이다.
+
+### 5-2. Unity 쪽에서 할 일
+
+`MockScheduleLoader` 인스펙터만 바꾸면 된다. 코드 수정은 없다.
+
+| 필드 | 값 |
+| --- | --- |
+| `Source` | `Rest Api` |
+| `Api Base Url` | `http://localhost:8000` (포트포워딩 주소) |
+| `Algorithm` | `ortools`, `ppo`, `dqn`, `est`, `spt`, `lpt`, `rtb`, `rub` 중 하나 |
+| `Request Timeout Seconds` | `30` (응답이 약 300KB) |
+
+`Source` 를 `Streaming Assets File` 로 되돌리면 백엔드 없이 Mock 으로 돌아간다.
+
+### 5-3. 실데이터에서는 hideOutsideTimeWindow 를 켠다
+
+872개를 동시에 그리면 정반 하나에 블록 13개가 같은 자리에 겹쳐 보인다. 실제로는 정반당
+동시에 1개만 올라가므로(§2-1) `ViewerSceneBindings.hideOutsideTimeWindow` 를 켜는 것이
+실데이터의 정상 사용법이다. 켜면 그 시점에 작업 중인 블록만 남는다.
+
+### 5-4. 아직 안 한 것
+
+WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` 부분 갱신과 스포너 diff
+적용이 필요하며 현재 범위 밖이다.
 
 ---
 
@@ -276,12 +319,21 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
   - **인스펙터 직렬화 확인**: `ViewerSceneBindings` 슬롯 4개와
     씬 내 컴포넌트 상호 참조 5곳이 저장 후에도 유지됨.
   - 콘솔에 뜨는 `NoSubscription` 에러는 `com.unity.ai.assistant` 패키지 문제이며 이 뷰어와 무관하다.
+- **실데이터 확장 검증** (`tests/test_viewer_payload_contract.py`, pytest 42건 통과)
+  - 8개 알고리즘 × 계약 검증 / 판 경계 안 배치 / 정반당 시간 비중첩 / 규모 확인.
+    검증 규칙은 C# 매퍼(`SchedulePayloadMapper.cs`)가 강제하는 항목을 파이썬으로 미러링한 것이다.
+  - 모든 알고리즘에서 정반 66개, 블록 872개, 건너뛴 블록 0건.
+  - HTTP 직렬화까지 확인: 어댑터 응답 200, 약 300KB. 없는 알고리즘은 404.
+  - 부수 수정: 실데이터의 `'9M'` 과 `NaN` 때문에 500 을 내던 기존 `/api/platens` 를 복구했다.
+  - **Unity 에디터에서 실데이터를 띄운 검증은 아직 안 했다.** 백엔드 응답이 계약을 만족한다는
+    것까지만 확인됐고, 872개 스폰 성능과 화면은 눈으로 봐야 한다.
 - **남은 위험**
-  - **좌표·팩킹 부재**: Mock 좌표는 시각화용으로 이 저장소가 만들어낸 값이다.
-    실데이터엔 좌표가 없어(§2 C3) 확장 시 2D 팩킹 단계가 없으면 블록이 겹쳐 보인다.
-  - **정반당 동시 1블록 제약은 화면에 강제되지 않음**: 기본값은 40개를 모두 보여주는
-    교육용 표시다. 물리적 정직함이 필요하면 `hideOutsideTimeWindow` 를 켠다.
-  - **실데이터 66정반 / 872블록 확장은 미수행·미검증**: §5 는 설계안일 뿐 코드가 없다.
+  - **좌표는 여전히 만들어낸 값**: 정반 배치는 `YardLayoutConfig` 격자 폴백이고
+    블록은 정반 중앙이다. 실제 야드 배치도, 실제 블록 위치도 아니다.
+  - **블록 높이 3.0m 는 공칭값**: 실데이터에 높이 컬럼이 없다. 데이터에서 온 값이 아니다.
+  - **정반당 동시 1블록 제약은 화면에 강제되지 않음**: 기본값은 모두 보여주는
+    교육용 표시다. 실데이터에서는 `hideOutsideTimeWindow` 를 켜야 정직한 화면이 된다.
+  - **WebSocket 실시간 갱신 미구현**: 로드는 1회성이다.
   - **머티리얼 미생성**: 판과 블록이 URP 기본 Lit 머티리얼을 공유한다. 색 구분은 런타임
     `MaterialPropertyBlock` 에만 의존하므로, 판 자체 색을 바꾸려면 `Platen_Mat` 을 따로 만들어야 한다.
   - **자동화 테스트 없음**: 검증은 정적 스크립트와 위 육안 확인뿐이다. Unity Test Framework

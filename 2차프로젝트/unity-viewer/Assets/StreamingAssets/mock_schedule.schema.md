@@ -83,9 +83,32 @@ z-fighting 없이 색 변화(회색→파랑→초록)를 한눈에 볼 수 있�
 작업 기간 밖(착수 전/완료) 블록이 숨겨진다. Mock 의 시간 배치는 이미 정반별 비중첩이라
 이 옵션을 켜면 정반당 최대 1개만 보인다.
 
-## 확장(66 정반 / 872 블록, REST·WebSocket)
+## 확장(66 정반 / 872 블록) — 구현 완료
 
-- REST: `GET /api/schedule/{algorithm}` 응답(`schedule[]`)과 `GET /api/platens` 응답을
-  이 계약 형태로 어댑팅. 실제 응답은 시간이 **정수 경과일**이므로 `project_epoch + N일` 로 변환하고,
-  좌표가 없으므로 `YardLayoutConfig` 격자 폴백(정반) + 팩킹 결과(블록 로컬 오프셋)를 채워야 한다.
-- 교체 지점은 `MockScheduleLoader.LoadRoutine` 의 바이트 획득부 한 곳. 파서·매퍼·스포너는 재사용.
+**어댑터는 백엔드에 있다.** `GET /api/viewer/schedule/{algorithm}` 이 이 계약을 그대로 내보낸다
+(`backend/app/main.py`). 원시 `GET /api/schedule/{algorithm}` 이 아니다 — 그쪽은 CSV 레코드를
+그대로 돌려주므로 계약과 다르다.
+
+Unity 쪽은 `MockScheduleLoader` 의 `source` 를 `RestApi` 로 바꾸고 `apiBaseUrl` 과 `algorithm`
+을 채우면 끝이다. 파서·매퍼·`ScheduleDataset`·스포너·색상 갱신은 한 줄도 바뀌지 않는다.
+
+서버 어댑터가 처리하는 것:
+
+| 실데이터 문제 | 어댑터 처리 |
+| --- | --- |
+| 시간이 정수 경과일 | `project_epoch`(2018-03-03+09:00) + N일 → ISO-8601 |
+| 스케줄 CSV 에 블록 치수 없음 | `seq_id` 로 `block_information.csv` 조인(872건 전부 매칭) |
+| `block_id` 중복(872행에 고유값 97개) | 표시용 id 를 `{ship_id}_{block_id}_{seq_id}` 로 합성 |
+| 알고리즘별 납기 컬럼 이름 상이 | `due_date_day`(ortools) / `due_day`(나머지) 자동 선택 |
+| 정반 야드 좌표 없음 | `position` 을 **생략**해 `YardLayoutConfig` 격자 폴백에 맡김 |
+| 블록 로컬 좌표 없음 | 정반 중앙 배치. 안 들어가면 90도 회전(872개 중 86개) |
+| 블록 높이 컬럼 없음 | 표시용 공칭 3.0m. 데이터 출처가 아님을 `adapter_notes` 에 명시 |
+| `status` 가 `ALLOCATED` 단일값 | 계약 통과용 `waiting` 고정. 색상은 시각으로 계산 |
+
+**2D 팩킹은 필요 없다.** 실스케줄을 검사한 결과 같은 정반에서 기간이 겹치는 블록 쌍이 **0건**이라
+어느 순간에도 정반 위 블록은 최대 1개다. 그래서 중앙 배치로 충분하다. 다만 872개를 동시에 그리면
+정반당 13개가 같은 자리에 겹쳐 보이므로, 실데이터에서는
+`ViewerSceneBindings.hideOutsideTimeWindow` 를 **켜는 것이 정상 사용법**이다.
+
+검증은 `tests/test_viewer_payload_contract.py` 가 이 문서의 규칙을 미러링해 8개 알고리즘 전부에
+대해 자동으로 확인한다.
