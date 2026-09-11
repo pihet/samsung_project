@@ -18,4 +18,4 @@ MonoBehaviour:
   yardLayout: {fileID: 11400000, guid: 8e1e5089a18f1fb4e9239759c09f8c77, type: 2}
   scalePrefabToSize: 1
   platenSlabThickness: 0.5
-  hideOutsideTimeWindow: 0
+  hideOutsideTimeWindow: 1

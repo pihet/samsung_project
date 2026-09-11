@@ -11,8 +11,9 @@
 > **현재 상태:** Unity 에디터 생성물이 모두 커밋되어 있다.
 > `ProjectSettings/`, `Packages/`, `*.meta`, 씬 `Assets/Scenes/Viewer.unity`,
 > 프리팹 2개, ScriptableObject 자산 3개가 저장소에 들어 있다.
-> **클론 후 에디터로 열면 바로 Play 가 된다.** 아래 §3·§4 는 이 자산들을 처음 만든 절차
-> 기록이며, 새로 셋업하거나 자산이 깨졌을 때만 따르면 된다.
+> **클론 후 에디터로 열면 바로 Play 가 된다.** 단 커밋된 씬은 실데이터(REST) 모드가 기본이라
+> 백엔드가 필요하다. 백엔드 없이 보려면 로더의 `Source` 를 `Streaming Assets File` 로 되돌린다.
+> 아래 §3·§4 는 이 자산들을 처음 만든 절차 기록이며, 새로 셋업할 때만 따르면 된다.
 
 ---
 
@@ -155,8 +156,11 @@ Mock 은 같은 정반의 블록들을 시간상 비중첩으로만 배치한다
 ## 4. 에디터 자산 생성 및 연결 (완료됨 — 최초 셋업 기록)
 
 > 프리팹 2개, ScriptableObject 자산 3개, `Assets/Scenes/Viewer.unity` 가 모두 커밋돼 있다.
-> 기존 클론에서는 `Viewer.unity` 를 열고 Play 를 누르면 된다.
 > 머티리얼 `Platen_Mat`/`Block_Mat` 은 만들지 않았고 URP 기본 Lit 머티리얼을 쓴다(§4-2 는 선택).
+>
+> **커밋된 씬은 실데이터(REST) 모드가 기본이다.** 그대로 Play 하려면 백엔드가 떠 있어야 한다(§5).
+> 백엔드 없이 보려면 `MockScheduleLoader.Source` 를 `Streaming Assets File` 로 되돌린다.
+> 그러면 정반 8개 / 블록 40개 Mock 으로 즉시 동작한다.
 
 ### 4-1. 프리팹 2개 — `Assets/Prefabs/`
 
@@ -263,22 +267,59 @@ Platen_PPT1000A_Bay10-N-1   (빈 GameObject, scale 1, 위치 = 정반 최소 코
 
 `MockScheduleLoader` 인스펙터만 바꾸면 된다. 코드 수정은 없다.
 
-| 필드 | 값 |
+| 필드 | 커밋된 값 |
 | --- | --- |
 | `Source` | `Rest Api` |
-| `Api Base Url` | `http://localhost:8000` (포트포워딩 주소) |
-| `Algorithm` | `ortools`, `ppo`, `dqn`, `est`, `spt`, `lpt`, `rtb`, `rub` 중 하나 |
+| `Api Base Url` | `http://localhost:8000` |
+| `Algorithm` | `ortools` (다른 값: `ppo`, `dqn`, `est`, `spt`, `lpt`, `rtb`, `rub`) |
 | `Request Timeout Seconds` | `30` (응답이 약 300KB) |
 
 `Source` 를 `Streaming Assets File` 로 되돌리면 백엔드 없이 Mock 으로 돌아간다.
 
-### 5-3. 실데이터에서는 hideOutsideTimeWindow 를 켠다
+백엔드 기동은 Kafka 주소를 바꿔줘야 한다. 기본값이 쿠버네티스 안의 브로커라
+로컬에서는 연결을 기다리다 기동이 끝나지 않는다.
 
-872개를 동시에 그리면 정반 하나에 블록 13개가 같은 자리에 겹쳐 보인다. 실제로는 정반당
-동시에 1개만 올라가므로(§2-1) `ViewerSceneBindings.hideOutsideTimeWindow` 를 켜는 것이
-실데이터의 정상 사용법이다. 켜면 그 시점에 작업 중인 블록만 남는다.
+```
+cd 2차프로젝트/backend
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-### 5-4. 아직 안 한 것
+에셋 로딩에 약 30초가 걸린 뒤 포트가 열린다.
+`http://localhost:8000/api/viewer/schedule/ortools` 가 JSON 을 돌려주면 준비된 것이다.
+
+### 5-3. 실데이터용 씬 설정
+
+커밋된 씬은 아래 값으로 맞춰져 있다. Mock(8정반 야드)과 실데이터(66정반 야드)는
+규모가 달라 카메라가 같을 수 없다.
+
+| 대상 | 필드 | 값 | 이유 |
+| --- | --- | --- | --- |
+| `ViewerSceneBindings` | `hideOutsideTimeWindow` | 켬 | 872개를 다 그리면 정반당 13개가 같은 자리에 겹친다. 실제로는 정반당 동시 1개(§2-1) |
+| `Main Camera` | position `(175, 320, -90)` | 야드가 X 0~351m, Z 0~302m | Mock 야드(135m)의 2.6배라 기존 위치로는 화면 밖으로 넘친다 |
+| `TimelineClock` | `hoursPerRealSecond` 240 | 1초 = 10일 | 스케줄이 1254일이라 24(1초=1일)면 전체를 보는 데 21분 걸린다 |
+
+### 5-4. 화면 읽는 법
+
+색은 `start_time`/`end_time` 과 현재 시각으로 계산한다. `hideOutsideTimeWindow` 를 켜면
+작업 중인 블록만 남으므로 실질적으로 두 색만 보인다.
+
+- **파랑** — 작업 중이고 납기 안에 든다.
+- **탁한 분홍** — 작업 중이지만 납기를 넘겼다. 파랑에 `delayedTint` 를 60% 섞은 색이다.
+
+동시 작업 블록 수는 구간별로 크게 다르다(ortools 기준).
+
+| 경과일 | 작업 중 | 그중 납기 초과 |
+| --- | --- | --- |
+| 0 | 2 | 0 |
+| 60 | 48 | 0 |
+| 200 | 62 | 27 |
+| 400 | 9 | 4 |
+| 1250 | 1 | 1 |
+
+초반과 후반은 한산하다. 60~200일 구간이 가장 볼 만하고, 후반으로 갈수록 작업 중인
+블록이 거의 다 지연 상태라 파랑을 보기 어렵다.
+
+### 5-5. 아직 안 한 것
 
 WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` 부분 갱신과 스포너 diff
 적용이 필요하며 현재 범위 밖이다.
@@ -325,8 +366,14 @@ WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` �
   - 모든 알고리즘에서 정반 66개, 블록 872개, 건너뛴 블록 0건.
   - HTTP 직렬화까지 확인: 어댑터 응답 200, 약 300KB. 없는 알고리즘은 404.
   - 부수 수정: 실데이터의 `'9M'` 과 `NaN` 때문에 500 을 내던 기존 `/api/platens` 를 복구했다.
-  - **Unity 에디터에서 실데이터를 띄운 검증은 아직 안 했다.** 백엔드 응답이 계약을 만족한다는
-    것까지만 확인됐고, 872개 스폰 성능과 화면은 눈으로 봐야 한다.
+  - **에디터 실행 검증 완료** (2026-09-11, Unity `6000.5.10f1` / Windows):
+    `Source = Rest Api` 로 로컬 백엔드에 붙여 콘솔에
+    `[MockScheduleLoader] 로드 완료: 정반 66개, 블록 872개, 알고리즘 'ortools',
+    기간 2018-03-03T00:00:00+09:00 ~ 2021-08-08T00:00:00+09:00` 및
+    `[YardBlockSpawner] 정반 66개, 블록 872개 스폰 완료.` 확인.
+    정반 66개가 8×9 격자로 배치되고, `hideOutsideTimeWindow` 를 켠 상태에서
+    그 시점 작업 중인 블록만 파랑/분홍으로 표시되는 것을 눈으로 확인했다.
+    938개 오브젝트 스폰에 체감 지연 없음.
 - **남은 위험**
   - **좌표는 여전히 만들어낸 값**: 정반 배치는 `YardLayoutConfig` 격자 폴백이고
     블록은 정반 중앙이다. 실제 야드 배치도, 실제 블록 위치도 아니다.
