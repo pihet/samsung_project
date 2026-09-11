@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7efda452f87513549b43b60aa82bd2d5, type: 3}
+  m_Name: ViewerSceneBindings
+  m_EditorClassIdentifier: Assembly-CSharp::ShipyardTwin.Runtime.Config.ViewerSceneBindings
+  platenPrefab: {fileID: 2954581736481761340, guid: 696a1400af065de40824ccfffff98a57, type: 3}
+  blockPrefab: {fileID: 1169074580314192696, guid: ac9ed9a24357fff45805d45453c8d9a2, type: 3}
+  colorPalette: {fileID: 11400000, guid: 6d6501777c58a9642938487c498f8bc7, type: 2}
+  yardLayout: {fileID: 11400000, guid: 8e1e5089a18f1fb4e9239759c09f8c77, type: 2}
+  scalePrefabToSize: 1
+  platenSlabThickness: 0.5
+  hideOutsideTimeWindow: 0
