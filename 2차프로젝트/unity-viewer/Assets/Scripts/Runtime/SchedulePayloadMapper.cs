@@ -137,80 +137,108 @@ namespace ShipyardTwin.Runtime
             for (var i = 0; i < dtos.Length; i++)
             {
                 var d = dtos[i];
-                var ctx = $"blocks[{i}]";
 
                 if (d == null)
                 {
-                    errors.Add($"{ctx}: 항목이 null 입니다.");
+                    errors.Add($"blocks[{i}]: 항목이 null 입니다.");
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(d.BlockId))
                 {
-                    errors.Add($"{ctx}: block_id 가 비어 있습니다.");
+                    errors.Add($"blocks[{i}]: block_id 가 비어 있습니다.");
                     continue;
                 }
-
-                ctx = $"block '{d.BlockId}'";
 
                 if (!blockIds.Add(d.BlockId))
                 {
-                    errors.Add($"{ctx}: block_id 가 중복됩니다.");
+                    errors.Add($"block '{d.BlockId}': block_id 가 중복됩니다.");
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(d.PlatformId))
+                var model = MapBlock(d, platenIds, errors);
+                if (model != null)
                 {
-                    errors.Add($"{ctx}: platform_id 가 비어 있습니다.");
-                }
-                else if (!platenIds.Contains(d.PlatformId))
-                {
-                    errors.Add($"{ctx}: platform_id '{d.PlatformId}' 에 해당하는 정반이 없습니다.");
-                }
-
-                if (!BlockLifecycleStatusParser.TryParse(d.Status, out var status))
-                {
-                    errors.Add($"{ctx}: status '{d.Status}' 는 허용되지 않습니다. " +
-                               $"허용값: {BlockLifecycleStatusParser.AllowedValues}.");
-                }
-
-                var size = ReadSize(d.Length, d.Height, d.Width, ctx, errors);
-                var localPos = ReadPosition(d.Position, $"{ctx}.position", errors);
-                var blockType = NormalizeBlockType(d.BlockType, ctx, errors);
-
-                var start = ParseTimestamp(d.StartTime, $"{ctx}.start_time", errors);
-                var end = ParseTimestamp(d.EndTime, $"{ctx}.end_time", errors);
-                DateTimeOffset? due = null;
-                if (!string.IsNullOrWhiteSpace(d.DueTime))
-                {
-                    due = ParseTimestamp(d.DueTime, $"{ctx}.due_time", errors);
-                }
-
-                if (start.HasValue && end.HasValue && start.Value >= end.Value)
-                {
-                    errors.Add($"{ctx}: start_time({d.StartTime}) 이 end_time({d.EndTime}) 보다 " +
-                               "빠르지 않습니다.");
-                }
-
-                // 위에서 이미 오류가 누적된 경우 모델 생성은 건너뛴다(값이 불완전).
-                if (start.HasValue && end.HasValue && !string.IsNullOrWhiteSpace(d.PlatformId))
-                {
-                    result.Add(new BlockModel(
-                        d.BlockId,
-                        d.SeqId,
-                        d.ShipId ?? string.Empty,
-                        d.PlatformId,
-                        blockType,
-                        size,
-                        localPos,
-                        status,
-                        start.Value,
-                        end.Value,
-                        due));
+                    result.Add(model);
                 }
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 블록 DTO 1개를 계약대로 검증해 모델로 만든다. 위반은 errors 에 누적하고 null 을 돌려준다.
+        /// 최초 스냅샷(MapBlocks)과 WebSocket 증분 추가가 **같은 검증 경로**를 쓰도록 분리했다.
+        /// block_id 중복 검사는 호출자 책임이다(전체 집합을 아는 쪽이 해야 하므로).
+        /// </summary>
+        public static BlockModel MapBlock(
+            BlockDto d, ICollection<string> platenIds, List<string> errors)
+        {
+            if (d == null)
+            {
+                errors.Add("block: 항목이 null 입니다.");
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(d.BlockId))
+            {
+                errors.Add("block: block_id 가 비어 있습니다.");
+                return null;
+            }
+
+            var ctx = $"block '{d.BlockId}'";
+
+            if (string.IsNullOrWhiteSpace(d.PlatformId))
+            {
+                errors.Add($"{ctx}: platform_id 가 비어 있습니다.");
+            }
+            else if (!platenIds.Contains(d.PlatformId))
+            {
+                errors.Add($"{ctx}: platform_id '{d.PlatformId}' 에 해당하는 정반이 없습니다.");
+            }
+
+            if (!BlockLifecycleStatusParser.TryParse(d.Status, out var status))
+            {
+                errors.Add($"{ctx}: status '{d.Status}' 는 허용되지 않습니다. " +
+                           $"허용값: {BlockLifecycleStatusParser.AllowedValues}.");
+            }
+
+            var size = ReadSize(d.Length, d.Height, d.Width, ctx, errors);
+            var localPos = ReadPosition(d.Position, $"{ctx}.position", errors);
+            var blockType = NormalizeBlockType(d.BlockType, ctx, errors);
+
+            var start = ParseTimestamp(d.StartTime, $"{ctx}.start_time", errors);
+            var end = ParseTimestamp(d.EndTime, $"{ctx}.end_time", errors);
+            DateTimeOffset? due = null;
+            if (!string.IsNullOrWhiteSpace(d.DueTime))
+            {
+                due = ParseTimestamp(d.DueTime, $"{ctx}.due_time", errors);
+            }
+
+            if (start.HasValue && end.HasValue && start.Value >= end.Value)
+            {
+                errors.Add($"{ctx}: start_time({d.StartTime}) 이 end_time({d.EndTime}) 보다 " +
+                           "빠르지 않습니다.");
+            }
+
+            // 위에서 오류가 누적된 경우 값이 불완전하므로 모델을 만들지 않는다.
+            if (!start.HasValue || !end.HasValue || string.IsNullOrWhiteSpace(d.PlatformId))
+            {
+                return null;
+            }
+
+            return new BlockModel(
+                d.BlockId,
+                d.SeqId,
+                d.ShipId ?? string.Empty,
+                d.PlatformId,
+                blockType,
+                size,
+                localPos,
+                status,
+                start.Value,
+                end.Value,
+                due);
         }
 
         private static Vector3 ReadSize(

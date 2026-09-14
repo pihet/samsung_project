@@ -116,6 +116,35 @@ namespace ShipyardTwin.Runtime
             Debug.Log($"[YardBlockSpawner] 정반 {_platenRoots.Count}개, 블록 {_blockViews.Count}개 스폰 완료.");
         }
 
+        /// <summary>
+        /// 이미 스폰된 야드 위에 블록 1개를 얹는다. WebSocket 증분 추가 경로다.
+        /// 정반 루트는 이미 있어야 한다(야드는 런타임에 바뀌지 않는다).
+        /// 성공하면 BlockViews 에 들어가 다음 색상 갱신 주기부터 자동으로 칠해진다.
+        /// </summary>
+        public bool AddBlock(BlockModel block)
+        {
+            if (block == null)
+            {
+                return false;
+            }
+
+            if (bindings == null || bindings.blockPrefab == null)
+            {
+                Debug.LogError("[YardBlockSpawner] blockPrefab 이 없어 블록을 추가할 수 없습니다.");
+                return false;
+            }
+
+            if (!_platenRoots.TryGetValue(block.PlatformId, out var platenRoot))
+            {
+                Debug.LogWarning($"[YardBlockSpawner] 블록 '{block.BlockId}' 의 정반 " +
+                                 $"'{block.PlatformId}' 가 씬에 없습니다. 추가를 건너뜁니다.");
+                return false;
+            }
+
+            SpawnBlock(block, platenRoot);
+            return true;
+        }
+
         /// <summary>이 스포너가 생성한 오브젝트만 제거한다(사용자가 둔 다른 자식은 건드리지 않음).</summary>
         public void Clear()
         {

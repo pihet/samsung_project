@@ -9,6 +9,7 @@
 - 물리적 수용 불가능한 블록에 대한 명시적 INFEASIBLE_REJECTED 처리
 """
 
+import asyncio
 import os
 import re
 import sys
@@ -18,7 +19,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -575,6 +576,172 @@ def get_viewer_schedule(algorithm: str):
     }
 
 
+# ==============================================================================
+# 3-2. Unity 뷰어 실시간 스트림 (WebSocket)
+#      최초 스냅샷은 REST(/api/viewer/schedule/{algorithm}) 가 주고,
+#      이후 런타임에 발생하는 긴급 블록 배정만 이 채널로 증분 전달한다.
+#      전체 스케줄 CSV 는 변하지 않으므로 재전송할 것이 없다.
+# ==============================================================================
+viewer_stream_clients: set = set()
+viewer_stream_queue: Optional["asyncio.Queue"] = None
+viewer_stream_loop: Optional["asyncio.AbstractEventLoop"] = None
+
+
+def _viewer_platen_size(platen_id: str):
+    """정반 id 로 (length, width) 를 찾는다. 없으면 None."""
+    if df_platens_cache is None or not platen_id:
+        return None
+    for _, row in df_platens_cache.iterrows():
+        if _safe_str(row.get("platen_id")) == platen_id:
+            return (
+                _safe_float(row.get("platen_length_m"), 30.0),
+                _safe_float(row.get("platen_width_m"), 20.0),
+            )
+    return None
+
+
+def _viewer_rejected_message(event_id: str, block_id: str, reason: str) -> Dict[str, Any]:
+    return {
+        "schema_version": VIEWER_SCHEMA_VERSION,
+        "type": "block_rejected",
+        "event_id": event_id,
+        "sent_at": datetime.now(VIEWER_KST).isoformat(),
+        "block_id": block_id,
+        "reason": reason,
+    }
+
+
+def _viewer_emergency_message(req: Any, dispatch_result: Dict[str, Any],
+                              accepted: bool) -> Dict[str, Any]:
+    """긴급 디스패치 결과를 뷰어 계약의 블록 1개로 변환한다.
+
+    계약을 만족시킬 수 없는 입력은 값을 지어내지 않고 block_rejected 로 돌려준다.
+    """
+    event_id = dispatch_result.get("event_id", "")
+    if not accepted:
+        return _viewer_rejected_message(
+            event_id, req.block_id,
+            "수용 가능한 정반이 없습니다(크기·하중 초과 또는 전용 정반 타입 불일치).")
+
+    block_type = _safe_str(req.block_type, "FLAT").upper()
+    if block_type not in ("FLAT", "CURVED"):
+        return _viewer_rejected_message(
+            event_id, req.block_id,
+            f"block_type '{block_type}' 는 뷰어 계약(FLAT/CURVED)에 없어 표시할 수 없습니다.")
+
+    platen_id = _safe_str(dispatch_result.get("assigned_platen_id"))
+    size = _viewer_platen_size(platen_id)
+    if size is None:
+        return _viewer_rejected_message(
+            event_id, req.block_id,
+            f"배정된 정반 '{platen_id}' 의 스펙을 찾을 수 없습니다.")
+
+    start_day = int(dispatch_result.get("start_day", 0))
+    end_day = int(dispatch_result.get("end_day", 0))
+    if end_day <= start_day:
+        return _viewer_rejected_message(
+            event_id, req.block_id,
+            f"작업 기간이 0일 이하입니다(start {start_day}, end {end_day}). 표시할 구간이 없습니다.")
+
+    raw_l = _safe_float(req.length_m, 0.0)
+    raw_w = _safe_float(req.width_m, 0.0)
+    if raw_l <= 0.0 or raw_w <= 0.0:
+        return _viewer_rejected_message(
+            event_id, req.block_id, "블록 치수가 0 이하입니다.")
+
+    length, width, x, z = _viewer_place_block(raw_l, raw_w, size[0], size[1])
+
+    block = {
+        # 기존 872개와 충돌하지 않도록 event_id 를 붙여 고유성을 보장한다.
+        "block_id": f"EMG_{_safe_str(req.ship_id)}_{_safe_str(req.block_id)}_{event_id}",
+        "seq_id": 0,
+        "ship_id": _safe_str(req.ship_id),
+        "platform_id": platen_id,
+        "block_type": block_type,
+        "length": length,
+        "width": width,
+        "height": VIEWER_NOMINAL_BLOCK_HEIGHT_M,
+        "position": [x, 0.0, z],
+        "status": "waiting",
+        "start_time": _viewer_day_to_iso(start_day),
+        "end_time": _viewer_day_to_iso(end_day),
+        "due_time": _viewer_day_to_iso(dispatch_result.get("due_day", end_day)),
+    }
+    return {
+        "schema_version": VIEWER_SCHEMA_VERSION,
+        "type": "block_added",
+        "event_id": event_id,
+        "sent_at": datetime.now(VIEWER_KST).isoformat(),
+        "emergency_level": _safe_str(getattr(req, "emergency_level", ""), "CRITICAL"),
+        "delay_days": int(dispatch_result.get("delay_days", 0)),
+        "block": block,
+    }
+
+
+def _viewer_stream_publish(message: Dict[str, Any]) -> bool:
+    """동기 엔드포인트(스레드풀)에서 비동기 브로드캐스터로 안전하게 넘긴다.
+
+    긴급 디스패치 경로를 절대 블로킹하지 않는다. 큐가 없거나 루프가 닫혔으면
+    조용히 False 를 돌려주고 본래 응답에는 영향을 주지 않는다.
+    """
+    loop = viewer_stream_loop
+    queue = viewer_stream_queue
+    if loop is None or queue is None:
+        return False
+    try:
+        loop.call_soon_threadsafe(queue.put_nowait, message)
+        return True
+    except RuntimeError:
+        return False
+
+
+async def _viewer_stream_broadcaster():
+    """큐를 비우며 연결된 모든 뷰어에 같은 메시지를 보낸다."""
+    while True:
+        message = await viewer_stream_queue.get()
+        for client in list(viewer_stream_clients):
+            try:
+                await client.send_json(message)
+            except Exception:
+                viewer_stream_clients.discard(client)
+
+
+@app.on_event("startup")
+async def _viewer_stream_startup():
+    global viewer_stream_queue, viewer_stream_loop
+    viewer_stream_queue = asyncio.Queue()
+    viewer_stream_loop = asyncio.get_running_loop()
+    asyncio.create_task(_viewer_stream_broadcaster())
+
+
+@app.websocket("/api/viewer/stream")
+async def viewer_stream(websocket: WebSocket):
+    """Unity 뷰어 실시간 채널.
+
+    연결 직후 hello 를 1회 보낸다. 이후 긴급 블록이 배정될 때마다
+    block_added(또는 block_rejected)를 push 한다. 클라이언트가 보내는 메시지는
+    연결 유지 확인 용도로만 읽고 버린다.
+    """
+    await websocket.accept()
+    viewer_stream_clients.add(websocket)
+    try:
+        await websocket.send_json({
+            "schema_version": VIEWER_SCHEMA_VERSION,
+            "type": "hello",
+            "sent_at": datetime.now(VIEWER_KST).isoformat(),
+            "project_epoch": VIEWER_PROJECT_EPOCH.isoformat(),
+            "connected_clients": len(viewer_stream_clients),
+        })
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        viewer_stream_clients.discard(websocket)
+
+
 class EmergencyBlockRequest(BaseModel):
     block_id: str
     ship_id: str
@@ -699,6 +866,8 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
             if len(recent_emergency_events) > 50:
                 recent_emergency_events.pop()
 
+            _viewer_stream_publish(_viewer_emergency_message(req, reject_result, accepted=False))
+
             return {
                 "status": "INFEASIBLE_REJECTED",
                 "message": f"요청된 블록({req.block_id}, 타입: {req_btype})을 수용할 수 있는 정반이 없습니다 (크레인 인양 한도 초과, 크기 초과 또는 전용 정반 타입 불일치)",
@@ -745,6 +914,8 @@ def publish_emergency_stream_and_dispatch(req: EmergencyBlockRequest):
     recent_emergency_events.insert(0, dispatch_result)
     if len(recent_emergency_events) > 50:
         recent_emergency_events.pop()
+
+    _viewer_stream_publish(_viewer_emergency_message(req, dispatch_result, accepted=True))
 
     return {
         "status": "SUCCESS",

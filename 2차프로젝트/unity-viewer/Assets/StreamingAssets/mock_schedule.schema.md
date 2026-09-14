@@ -112,3 +112,41 @@ Unity 쪽은 `MockScheduleLoader` 의 `source` 를 `RestApi` 로 바꾸고 `apiB
 
 검증은 `tests/test_viewer_payload_contract.py` 가 이 문서의 규칙을 미러링해 8개 알고리즘 전부에
 대해 자동으로 확인한다.
+
+---
+
+## 실시간 증분 채널 (WebSocket)
+
+`WS /api/viewer/stream`. **최초 스냅샷은 REST 가 주고, 이 채널은 증분만 보낸다.**
+전체 스케줄 CSV 는 변하지 않으므로 재전송할 것이 없다. 런타임에 실제로 생기는 변화는
+`POST /api/v1/emergency/stream-publish` 로 들어오는 긴급 블록 배정뿐이다.
+
+메시지는 항상 `schema_version` 과 `type` 을 갖는다. 메이저가 다르면 스냅샷과 같이 즉시 거부한다.
+
+| `type` | 시점 | 본문 |
+| --- | --- | --- |
+| `hello` | 연결 직후 1회 | `project_epoch`, `connected_clients` |
+| `block_added` | 긴급 블록이 정반에 배정됨 | `block` (아래), `event_id`, `emergency_level`, `delay_days` |
+| `block_rejected` | 배정 실패 또는 계약으로 표현 불가 | `block_id`, `reason` |
+
+`block_added` 의 `block` 은 **`blocks[]` 항목과 완전히 같은 형태**다. 따라서 Unity 도
+`SchedulePayloadMapper.MapBlock` 이라는 스냅샷과 같은 검증 경로를 탄다.
+
+`block_id` 는 `EMG_{ship_id}_{block_id}_{event_id}` 로 합성한다. 기존 872개와 겹치면
+매퍼가 중복으로 거부하므로 `event_id` 로 고유성을 보장한다.
+
+### 표현할 수 없으면 지어내지 않고 거부한다
+
+아래는 전부 `block_rejected` 로 나간다. 계약을 억지로 통과시키려고 값을 만들어내지 않는다.
+
+- 수용 가능한 정반이 없음 (크기·하중 초과, 전용 정반 타입 불일치)
+- `block_type` 이 `FLAT`/`CURVED` 가 아님
+- 배정된 정반의 스펙을 찾을 수 없음
+- 작업 기간이 0일 이하 (매퍼가 `start < end` 를 요구한다)
+- 블록 치수가 0 이하
+
+### 발행 경로는 디스패치를 막지 않는다
+
+긴급 디스패치 엔드포인트는 동기 함수이고 스레드풀에서 돈다. 브로드캐스트는
+`loop.call_soon_threadsafe` 로 asyncio 큐에 넣기만 하며, 큐나 루프가 없으면 조용히
+실패하고 원래 응답에는 영향을 주지 않는다.
