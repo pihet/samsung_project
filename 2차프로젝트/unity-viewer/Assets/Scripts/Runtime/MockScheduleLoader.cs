@@ -52,6 +52,9 @@ namespace ShipyardTwin.Runtime
         [Tooltip("Start() 에서 자동으로 로드한다.")]
         [SerializeField] private bool loadOnStart = true;
 
+        /// <summary>RestApi 모드에서 쓰는 백엔드 주소. 스트림 클라이언트가 같은 주소를 재사용한다.</summary>
+        public string ApiBaseUrl => apiBaseUrl;
+
         /// <summary>로드·검증 성공 시 1회 호출.</summary>
         public event Action<ScheduleDataset> Loaded;
 

@@ -227,3 +227,131 @@ def test_unknown_algorithm_returns_404():
     from app.main import app
 
     assert TestClient(app).get("/api/viewer/schedule/nope").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# WebSocket 증분 스트림 (/api/viewer/stream)
+# ---------------------------------------------------------------------------
+class _FakeEmergencyRequest:
+    """EmergencyBlockRequest 와 같은 속성만 가진 최소 대역물."""
+
+    def __init__(self, **kwargs):
+        self.block_id = kwargs.get("block_id", "E001")
+        self.ship_id = kwargs.get("ship_id", "H9999")
+        self.length_m = kwargs.get("length_m", 15.0)
+        self.width_m = kwargs.get("width_m", 14.0)
+        self.weight_ton = kwargs.get("weight_ton", 120.0)
+        self.lead_time_days = kwargs.get("lead_time_days", 20)
+        self.due_date_day = kwargs.get("due_date_day", 300)
+        self.block_type = kwargs.get("block_type", "FLAT")
+        self.emergency_level = kwargs.get("emergency_level", "CRITICAL")
+
+
+def _dispatch_result(**kwargs):
+    base = {
+        "event_id": "EVT-1",
+        "assigned_platen_id": kwargs.get("platen_id", "PPT1055A"),
+        "start_day": kwargs.get("start_day", 10),
+        "end_day": kwargs.get("end_day", 30),
+        "due_day": kwargs.get("due_day", 300),
+        "delay_days": 0,
+    }
+    base.update({k: v for k, v in kwargs.items() if k in base})
+    return base
+
+
+def validate_single_block(block, platen_ids, platen_size):
+    """스트림으로 들어온 블록 1개를 스냅샷과 같은 규칙으로 검증한다."""
+    payload = {
+        "schema_version": "1.0.0",
+        "platens": [
+            {"platen_id": pid, "length": platen_size[pid][0],
+             "width": platen_size[pid][1], "height": 9.0}
+            for pid in platen_ids
+        ],
+        "blocks": [block],
+    }
+    return validate(payload)
+
+
+def test_stream_message_for_accepted_block_satisfies_contract():
+    from app.main import _viewer_emergency_message, get_viewer_schedule
+
+    snapshot = get_viewer_schedule("ortools")
+    platen_size = {p["platen_id"]: (p["length"], p["width"]) for p in snapshot["platens"]}
+
+    req = _FakeEmergencyRequest()
+    message = _viewer_emergency_message(req, _dispatch_result(), accepted=True)
+
+    assert message["type"] == "block_added"
+    assert message["schema_version"] == "1.0.0"
+
+    errors = validate_single_block(message["block"], list(platen_size), platen_size)
+    assert not errors, "스트림 블록이 계약을 위반합니다\n" + "\n".join(errors)
+
+
+def test_stream_block_id_cannot_collide_with_snapshot():
+    """긴급 블록 id 는 기존 872개와 절대 겹치면 안 된다(매퍼가 중복을 거부한다)."""
+    from app.main import _viewer_emergency_message, get_viewer_schedule
+
+    snapshot_ids = {b["block_id"] for b in get_viewer_schedule("ortools")["blocks"]}
+    message = _viewer_emergency_message(_FakeEmergencyRequest(), _dispatch_result(), accepted=True)
+    assert message["block"]["block_id"] not in snapshot_ids
+
+
+def test_stream_block_stays_inside_assigned_platen():
+    from app.main import _viewer_emergency_message, get_viewer_schedule
+
+    platen_size = {p["platen_id"]: (p["length"], p["width"])
+                   for p in get_viewer_schedule("ortools")["platens"]}
+
+    # 정반보다 한쪽이 긴 블록: 90도 회전으로 수용되어야 한다.
+    pid = "PPT1055A"
+    platen_l, platen_w = platen_size[pid]
+    req = _FakeEmergencyRequest(length_m=platen_w, width_m=platen_l)
+    message = _viewer_emergency_message(req, _dispatch_result(platen_id=pid), accepted=True)
+
+    block = message["block"]
+    x, _, z = block["position"]
+    assert x >= 0 and z >= 0
+    assert x + block["length"] <= platen_l + 1e-6
+    assert z + block["width"] <= platen_w + 1e-6
+
+
+@pytest.mark.parametrize("kwargs,accepted,expect_in_reason", [
+    ({}, False, "수용 가능한 정반이 없습니다"),
+    ({"block_type": "ROUND"}, True, "FLAT/CURVED"),
+    ({"length_m": 0.0}, True, "치수가 0 이하"),
+])
+def test_unrepresentable_input_is_rejected_not_fabricated(kwargs, accepted, expect_in_reason):
+    """계약으로 표현할 수 없는 입력은 값을 지어내지 않고 block_rejected 로 나가야 한다."""
+    from app.main import _viewer_emergency_message
+
+    message = _viewer_emergency_message(
+        _FakeEmergencyRequest(**kwargs), _dispatch_result(), accepted=accepted)
+    assert message["type"] == "block_rejected"
+    assert expect_in_reason in message["reason"]
+    assert "block" not in message
+
+
+def test_zero_length_work_window_is_rejected():
+    """start == end 인 블록은 매퍼가 거부하므로 서버에서 먼저 걸러야 한다."""
+    from app.main import _viewer_emergency_message
+
+    message = _viewer_emergency_message(
+        _FakeEmergencyRequest(), _dispatch_result(start_day=10, end_day=10), accepted=True)
+    assert message["type"] == "block_rejected"
+    assert "0일 이하" in message["reason"]
+
+
+def test_publish_is_non_blocking_without_event_loop():
+    """긴급 디스패치 응답 경로가 스트림 때문에 막히면 안 된다.
+    이벤트 루프가 없으면 조용히 False 를 돌려주고 끝나야 한다."""
+    import app.main as m
+
+    saved_loop, saved_queue = m.viewer_stream_loop, m.viewer_stream_queue
+    m.viewer_stream_loop, m.viewer_stream_queue = None, None
+    try:
+        assert m._viewer_stream_publish({"type": "block_added"}) is False
+    finally:
+        m.viewer_stream_loop, m.viewer_stream_queue = saved_loop, saved_queue

@@ -27,6 +27,7 @@ unity-viewer/
     ├── Scripts/
     │   ├── Data/                     ← JSON 전송 계약(DTO) + 파서 + 예외
     │   │   ├── SchedulePayloadDto.cs
+    │   │   ├── ScheduleStreamDto.cs          (WebSocket 증분 메시지 계약)
     │   │   ├── SchedulePayloadParser.cs
     │   │   └── SchedulePayloadException.cs
     │   └── Runtime/                  ← 런타임 모델 + 로더 + 스폰 + 색상
@@ -37,7 +38,8 @@ unity-viewer/
     │       │   └── BlockModel.cs
     │       ├── ScheduleDataset.cs            (검증 통과 집합 + id 조회 맵 + 기간)
     │       ├── SchedulePayloadMapper.cs      (DTO→모델 + 전체 계약 검증)
-    │       ├── MockScheduleLoader.cs         (StreamingAssets 로드, MonoBehaviour)
+    │       ├── MockScheduleLoader.cs         (스냅샷 로드: 로컬 Mock 또는 REST)
+    │       ├── ScheduleStreamClient.cs       (WebSocket 증분 수신, MonoBehaviour)
     │       ├── TimelineClock.cs              (시뮬레이션 현재 시각, MonoBehaviour)
     │       ├── YardBlockSpawner.cs           (정반/블록 스폰, MonoBehaviour)
     │       ├── BlockView.cs                  (스폰된 블록 뷰 핸들)
@@ -319,10 +321,52 @@ KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:1 python -m uvicorn app.main:app --host 0.0.0.
 초반과 후반은 한산하다. 60~200일 구간이 가장 볼 만하고, 후반으로 갈수록 작업 중인
 블록이 거의 다 지연 상태라 파랑을 보기 어렵다.
 
-### 5-5. 아직 안 한 것
+### 5-5. 실시간 증분 채널 (WebSocket) — 구현 완료
 
-WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` 부분 갱신과 스포너 diff
-적용이 필요하며 현재 범위 밖이다.
+`WS /api/viewer/stream` 이 런타임 변화를 push 한다. **스냅샷 재전송은 하지 않는다.**
+스케줄 CSV 는 변하지 않으므로 다시 보낼 것이 없고, 실제로 생기는 변화는
+`POST /api/v1/emergency/stream-publish` 로 들어오는 긴급 블록 배정뿐이다.
+
+흐름은 이렇다. 긴급 블록 요청이 들어오면 기존 디스패처가 66개 정반의 물리 제약을 검사해
+정반을 배정하고, 그 결과를 계약의 블록 1개로 바꿔 접속된 모든 뷰어에 보낸다. 뷰어는
+스냅샷과 **같은 검증 경로**(`SchedulePayloadMapper.MapBlock`)를 태운 뒤 해당 정반 위에
+블록을 얹는다. 색상 갱신은 기존 폴링이 그대로 집어간다.
+
+메시지 형식은 `Assets/StreamingAssets/mock_schedule.schema.md` 의 실시간 증분 채널 절에 있다.
+
+#### 씬 배선
+
+`ViewerRoot` 에 `ScheduleStreamClient` 컴포넌트를 추가하고 슬롯 2개를 채운다.
+
+| 필드 | 값 |
+| --- | --- |
+| `Loader` | `ViewerRoot` (백엔드 주소와 데이터셋을 여기서 얻는다) |
+| `Spawner` | `ViewerRoot` |
+| `Override Base Url` | 비움 (로더의 `Api Base Url` 을 `ws://` 로 바꿔 쓴다) |
+| `Connect On Load` | 체크 (스냅샷 로드가 끝나면 자동 접속) |
+
+#### 시험하는 법
+
+뷰어를 Play 한 상태에서 긴급 블록을 하나 던진다.
+
+```
+curl -X POST http://localhost:8000/api/v1/emergency/stream-publish \
+  -H "Content-Type: application/json" \
+  -d '{"block_id":"E001","ship_id":"H9999","length_m":15.0,"width_m":14.0,
+       "weight_ton":120.0,"lead_time_days":20,"due_date_day":300,"block_type":"FLAT"}'
+```
+
+Unity 콘솔에 `[ScheduleStreamClient] 긴급 블록 추가: ... -> 정반 ...` 이 뜨고, 해당 정반에
+블록이 생긴다. `hideOutsideTimeWindow` 를 켜 뒀다면 타임라인이 그 블록의 작업 기간에
+도달할 때 나타난다.
+
+#### 제약
+
+- `ClientWebSocket` 을 쓰므로 **에디터와 스탠드얼론에서만 동작한다.** WebGL 빌드에서는
+  브라우저 소켓 API 로 교체해야 한다.
+- 추가만 있고 **삭제·수정은 없다.** 배정 취소나 일정 변경은 서버에도 그런 개념이 없다.
+- 연결이 끊기면 5초 후 재접속하지만, **끊겨 있는 동안 발행된 이벤트는 유실된다.**
+  서버가 이벤트를 버퍼링하지 않는다.
 
 ---
 
@@ -360,12 +404,16 @@ WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` �
   - **인스펙터 직렬화 확인**: `ViewerSceneBindings` 슬롯 4개와
     씬 내 컴포넌트 상호 참조 5곳이 저장 후에도 유지됨.
   - 콘솔에 뜨는 `NoSubscription` 에러는 `com.unity.ai.assistant` 패키지 문제이며 이 뷰어와 무관하다.
-- **실데이터 확장 검증** (`tests/test_viewer_payload_contract.py`, pytest 42건 통과)
+- **실데이터 확장 검증** (`tests/test_viewer_payload_contract.py`, pytest 50건 통과)
   - 8개 알고리즘 × 계약 검증 / 판 경계 안 배치 / 정반당 시간 비중첩 / 규모 확인.
     검증 규칙은 C# 매퍼(`SchedulePayloadMapper.cs`)가 강제하는 항목을 파이썬으로 미러링한 것이다.
   - 모든 알고리즘에서 정반 66개, 블록 872개, 건너뛴 블록 0건.
   - HTTP 직렬화까지 확인: 어댑터 응답 200, 약 300KB. 없는 알고리즘은 404.
   - 부수 수정: 실데이터의 `'9M'` 과 `NaN` 때문에 500 을 내던 기존 `/api/platens` 를 복구했다.
+  - **WebSocket 스트림 검증**: 실제 uvicorn 서버에 붙어 세 경우를 확인했다.
+    수용 가능한 블록은 `block_added` 로 계약 형태의 블록이 오고, 초대형 블록은
+    `block_rejected`, 계약에 없는 `block_type` 도 `block_rejected` 로 나온다.
+    스트림 블록이 계약을 만족하고 기존 872개와 id 가 겹치지 않는 것도 테스트로 고정했다.
   - **에디터 실행 검증 완료** (2026-09-11, Unity `6000.5.10f1` / Windows):
     `Source = Rest Api` 로 로컬 백엔드에 붙여 콘솔에
     `[MockScheduleLoader] 로드 완료: 정반 66개, 블록 872개, 알고리즘 'ortools',
@@ -380,7 +428,12 @@ WebSocket 증분 업데이트는 설계도 구현도 없다. `ScheduleDataset` �
   - **블록 높이 3.0m 는 공칭값**: 실데이터에 높이 컬럼이 없다. 데이터에서 온 값이 아니다.
   - **정반당 동시 1블록 제약은 화면에 강제되지 않음**: 기본값은 모두 보여주는
     교육용 표시다. 실데이터에서는 `hideOutsideTimeWindow` 를 켜야 정직한 화면이 된다.
-  - **WebSocket 실시간 갱신 미구현**: 로드는 1회성이다.
+  - **스트림은 추가 전용**: 블록 삭제·수정 경로가 없다. 서버에도 그 개념이 없다.
+  - **끊긴 동안의 이벤트는 유실된다**: 서버가 버퍼링하지 않으므로 재접속해도 복구되지 않는다.
+    정확성이 필요하면 재접속 시 REST 스냅샷을 다시 받아야 한다.
+  - **WebGL 미지원**: `ClientWebSocket` 은 에디터·스탠드얼론 전용이다.
+  - **스트림의 Unity 에디터 검증 미완**: 서버 쪽 push 와 계약은 확인했지만,
+    Unity 가 실제로 받아서 블록을 얹는 것은 아직 눈으로 보지 않았다.
   - **머티리얼 미생성**: 판과 블록이 URP 기본 Lit 머티리얼을 공유한다. 색 구분은 런타임
     `MaterialPropertyBlock` 에만 의존하므로, 판 자체 색을 바꾸려면 `Platen_Mat` 을 따로 만들어야 한다.
   - **자동화 테스트 없음**: 검증은 정적 스크립트와 위 육안 확인뿐이다. Unity Test Framework

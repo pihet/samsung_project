@@ -51,6 +51,37 @@ namespace ShipyardTwin.Data
         }
 
         /// <summary>
+        /// WebSocket 스트림 메시지 1건을 파싱한다. 스냅샷과 같은 설정·같은 버전 검사를 쓴다.
+        /// </summary>
+        public static ScheduleStreamMessageDto ParseStreamMessage(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new SchedulePayloadParseException("스트림 메시지가 비어 있습니다.", null);
+            }
+
+            ScheduleStreamMessageDto dto;
+            try
+            {
+                dto = JsonConvert.DeserializeObject<ScheduleStreamMessageDto>(json, Settings);
+            }
+            catch (JsonException ex)
+            {
+                throw new SchedulePayloadParseException(
+                    $"스트림 메시지 역직렬화 실패: {ex.Message}", ex);
+            }
+
+            if (dto == null)
+            {
+                throw new SchedulePayloadParseException(
+                    "스트림 메시지가 null 로 역직렬화되었습니다.", null);
+            }
+
+            VerifySchemaVersion(dto.SchemaVersion);
+            return dto;
+        }
+
+        /// <summary>
         /// 메이저 버전이 다르면 필드 의미가 바뀐 것으로 보고 조용히 잘못 그리는 대신 즉시 실패한다.
         /// (예: position 이 코너 기준 -> 중심 기준으로 바뀌는 변경)
         /// </summary>
