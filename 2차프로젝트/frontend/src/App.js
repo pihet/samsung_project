@@ -390,6 +390,7 @@ function App() {
                     <div className="result-item">
                       <span className="res-lbl">Schedule Time Window</span>
                       <span className="res-val">{`Day ${streamResult.start_day} -> Day ${streamResult.end_day}`}</span>
+
                       <span className="res-sub">Target Due: Day {streamResult.due_day}</span>
                     </div>
                     <div className="result-item">
