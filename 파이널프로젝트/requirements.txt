@@ -1,0 +1,5 @@
+numpy
+scipy
+soundfile
+pyworld
+setuptools<81  # pyworld가 pkg_resources를 import하는데, setuptools 81부터 빠짐

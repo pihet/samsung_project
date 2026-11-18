@@ -1,5 +1,34 @@
-numpy
-scipy
-soundfile
-pyworld
-setuptools<81  # pyworld가 pkg_resources를 import하는데, setuptools 81부터 빠짐
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# API and infrastructure clients
+fastapi==0.118.0
+uvicorn[standard]==0.37.0
+python-multipart==0.0.20
+pydantic-settings==2.11.0
+email-validator==2.3.0
+sqlalchemy[asyncio]==2.0.44
+alembic==1.17.1
+psycopg[binary]==3.2.12
+redis==6.4.0
+argon2-cffi==25.1.0
+httpx==0.28.1
+pgvector==0.4.1
+minio==7.2.18
+python-dotenv==1.1.1
+
+# Data and ML
+pandas==2.2.3
+numpy==2.1.3
+scikit-learn==1.5.2
+holidays==0.105
+lightgbm==4.7.0
+torch==2.14.1+cpu
+transformers==5.18.0
+pillow==12.3.0
+pillow-heif==1.8.0
+shapely==2.1.2
+
+# Experiment tracking
+mlflow==3.15.0
+boto3>=1.35,<2
+psycopg2-binary==2.9.11

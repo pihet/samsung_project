@@ -1,0 +1,46 @@
+from datetime import timedelta
+
+import pendulum
+
+from airflow import DAG
+from airflow.providers.standard.operators.bash import BashOperator
+
+
+KST = "Asia/Seoul"  # 스케줄은 한국 시각 (2026-10-11)
+
+
+with DAG(
+    "user_media_cleanup_hourly",
+    start_date=pendulum.datetime(2026, 10, 8, tz=KST),
+    schedule="@hourly",
+    catchup=False,
+    max_active_runs=1,
+    default_args={"owner": "platform", "retries": 2, "retry_delay": timedelta(minutes=5)},
+    tags=["privacy", "media"],
+) as dag:
+    BashOperator(task_id="delete_expired_media", bash_command="cd $PROJECT_ROOT && python src/ops/cleanup_media.py")
+
+
+with DAG(
+    "privacy_retention_daily",
+    start_date=pendulum.datetime(2026, 10, 12, tz=KST),
+    schedule="10 4 * * *",  # 매일 04:10 KST. 보관 기한 지난 검색 기록(90일)·메일 발송 기록(30일) 삭제
+    catchup=False,
+    max_active_runs=1,
+    default_args={"owner": "platform", "retries": 2, "retry_delay": timedelta(minutes=10)},
+    tags=["privacy"],
+) as retention_dag:
+    BashOperator(task_id="delete_expired_records", bash_command="cd $PROJECT_ROOT && python src/ops/cleanup_retention.py")
+
+
+with DAG(
+    "regional_metrics_monthly",
+    start_date=pendulum.datetime(2026, 11, 1, tz=KST),
+    schedule="20 0 2 * *",  # 매월 2일 00:20 KST
+    catchup=False,
+    max_active_runs=1,
+    default_args={"owner": "data", "retries": 3, "retry_delay": timedelta(minutes=30)},
+    tags=["metrics", "monthly"],
+) as monthly_dag:
+    visitors = BashOperator(task_id="collect_visitors", bash_command="cd $PROJECT_ROOT && python src/collect/datalab_visitors.py")
+    population = BashOperator(task_id="collect_population", bash_command="cd $PROJECT_ROOT && python src/collect/population.py")

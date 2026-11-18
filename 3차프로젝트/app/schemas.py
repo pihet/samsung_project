@@ -1,0 +1,155 @@
+"""API 계약 (docs/MVP_PLAN.md 5장). 프론트(web/src/api.ts)의 타입과 같은 모양을 유지한다."""
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
+
+Priority = Literal["visual", "crowd", "near", "season"]
+Origin = Literal["서울", "부산", "대구", "광주", "대전"]
+FilterKey = Literal["sea", "mountain", "calm", "city", "rural", "mild"]
+
+
+class Crop(BaseModel):
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    w: float = Field(gt=0)
+    h: float = Field(gt=0)
+
+
+class Tag(BaseModel):
+    tag: str
+    score: float
+
+
+class AnalyzeResponse(BaseModel):
+    is_example: bool = False
+    query_id: str
+    scene_tags: list[Tag]
+    image: dict
+    excluded_sigungu: Optional[dict] = None
+    media_asset_id: Optional[str] = None
+
+
+class RecommendRequest(BaseModel):
+    query_id: str
+    travel_month: Optional[int] = Field(default=None, ge=1, le=12)  # 없으면 연간 기준
+    priority: Priority = "visual"
+    origin: Optional[str] = Field(None, max_length=40)  # 5개 도시 이름 또는 시군구 key (MY 기본 출발지)
+    kept_tags: Optional[list[str]] = None
+    limit: int = Field(default=5, ge=1, le=30)
+    offset: int = Field(default=0, ge=0, le=29)
+    filters: list[FilterKey] = []
+    sido: Optional[str] = None
+    example: bool = False  # 화면이 스스로 부르는 예시 카드. 사람이 한 검색이 아니라 검색 기록에 남기지 않는다
+
+
+class MonthPoint(BaseModel):
+    month: str
+    visitors: int
+    index: int
+
+
+class Congestion(BaseModel):
+    month: Optional[int]
+    index: Optional[int]
+    visitors: int
+    basis: Literal["forecast", "actual", "annual"]
+    basis_month: str
+    monthly: list[MonthPoint]
+
+
+class Climate(BaseModel):
+    month: int
+    temp_c: float
+    rain_days: float
+    comfort: float
+
+
+class Attraction(BaseModel):
+    id: str
+    name: str
+    address: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
+    image_url: str
+    license: str
+    source: str
+
+
+class Candidate(BaseModel):
+    rank: int
+    visual_rank: int
+    sigungu: dict
+    attraction: Attraction
+    visual: dict
+    similar_tags: list[str]
+    different_tags: list[str]
+    congestion: Optional[Congestion]
+    climate: Optional[Climate]
+    distance_km: Optional[int]
+    map_links: dict
+    rerank: dict
+
+
+class RecommendResponse(BaseModel):
+    is_example: bool = False
+    query: dict
+    model: dict
+    total_candidates: int
+    candidates: list[Candidate]
+    data_sources: list[dict]
+
+
+class NaturalRecommendRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=300)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class NaturalRecommendResponse(BaseModel):
+    is_example: bool = False
+    message: str
+    interpretation: dict
+    llm: dict
+    total_candidates: int
+    candidates: list[Candidate]
+    data_sources: list[dict]
+
+
+class Feedback(BaseModel):
+    query_id: str
+    sigungu_key: str
+    attraction_id: str
+    value: Literal[1, -1]
+    rank: Optional[int] = Field(None, ge=1, le=100)  # 누를 때 보인 순위
+
+
+class ActivityGroup(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class ActivityItem(BaseModel):
+    id: str
+    name: str
+    group: str
+    kind: str
+    lat: float
+    lon: float
+    address: Optional[str]
+    image_url: Optional[str]
+    license: Optional[str]
+    distance_km: Optional[float]
+    period: Optional[str] = None
+    schedule: Optional[str] = None
+    menu: Optional[str] = None
+
+
+class ActivitiesResponse(BaseModel):
+    is_example: bool = False
+    sigungu_key: str
+    month: Optional[int]
+    anchor: Optional[dict]
+    groups: list[ActivityGroup]
+    items: list[ActivityItem]
+    notes: list[str]

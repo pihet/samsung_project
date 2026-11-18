@@ -1,0 +1,47 @@
+/* MY 탭 */
+.ig .my-profile { display: flex; align-items: center; gap: 12px; padding: 16px }
+.ig .my-av { flex: none; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--ig-soft); border: 1px solid var(--ig-line); font-size: 22px; font-weight: 700 }
+.ig .my-av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover }
+.ig .my-profile div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px }
+.ig .my-profile b { font-size: 16px }
+.ig .my-profile small { font-size: 13px; color: var(--ig-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ig .my-profile button { flex: none; height: 32px; padding: 0 14px; border-radius: 8px; background: var(--ig-soft);
+  font-size: 14px; font-weight: 600; color: var(--ig-ink); cursor: pointer }
+.ig .my-taste { margin: 0 16px 12px; padding: 12px 14px; border-radius: 12px; background: var(--ig-soft); font-size: 14px; line-height: 1.5 }
+.ig .my-taste p { margin: 0 }
+.ig .my-taste small { color: var(--ig-sub) }
+.ig .my-h { margin: 8px 16px 8px; font-size: 15px; font-weight: 700 }
+.ig .my-h small { margin-left: 4px; color: var(--ig-sub); font-weight: 600 }
+
+/* 홈 '저장한 곳과 닮은 곳' 줄: 이유 문장은 두 줄까지 */
+.ig .ig-strip.like small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35 }
+
+/* MY 오류 문장 */
+.ig .my-err { margin: 0 16px 8px; color: #ed4956; font-size: 13px }
+
+/* 저장한 곳의 축제 · 내가 누른 반응 목록. 사진은 자르지 않는다 (공공누리 3유형) */
+.ig .my-list { list-style: none; margin: 0 16px 16px; padding: 0 }
+.ig .my-list li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--ig-line) }
+.ig .my-list li > button:first-child { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 0; text-align: left; cursor: pointer; color: var(--ig-ink) }
+.ig .my-list img { flex: none; width: 64px; height: 52px; object-fit: contain; border-radius: 8px; background: var(--ig-soft) }
+.ig .my-list span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px }
+.ig .my-list b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ig .my-list small { font-size: 12px; color: var(--ig-sub) }
+.ig .my-list em { font-style: normal; font-weight: 600 }
+.ig .my-list em.up { color: #0095f6 }
+.ig .my-list em.down { color: #ed4956 }
+.ig .my-date { flex: none; width: 84px; font-size: 13px; font-weight: 700; color: #ee2a7b }
+.ig .my-undo { flex: none; height: 28px; padding: 0 10px; border-radius: 8px; background: var(--ig-soft); font-size: 13px; color: var(--ig-ink); cursor: pointer }
+
+/* 저장한 곳: 홈 가로 줄(.ig-strip)과 같은 카드. '전체'를 누르면 두 줄 격자. 사진은 자르지 않는다 (공공누리 3유형) */
+.ig .my-hrow { display: flex; align-items: center; justify-content: space-between; padding-right: 16px }
+.ig .my-hrow button { font-size: 13px; font-weight: 700; color: var(--ig-sub); cursor: pointer }
+.ig .my-saved { border-bottom: 0; padding-top: 0 }
+.ig .my-saved li { width: 132px }
+.ig .my-saved .ph { width: 132px; height: 99px; border-radius: 12px }
+.ig .my-saved b { font-size: 14px; margin-top: 2px }
+.ig .my-saved b, .ig .my-saved small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ig .my-saved.all ol { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 10px; overflow: visible }
+.ig .my-saved.all li { width: auto; min-width: 0 }
+.ig .my-saved.all .ph { width: 100%; height: auto; aspect-ratio: 4 / 3 }
