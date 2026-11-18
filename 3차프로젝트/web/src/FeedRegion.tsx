@@ -1,0 +1,233 @@
+import { useEffect, useState } from 'react'
+import { activitiesApi, api, placeDetailApi, profileApi, type ActivityItem, type DemoPhoto, type PlaceDetail, type RegionProfile } from './api'
+import { ActivityMap } from './components/ActivityMap'
+import { CourseView } from './components/CourseView'
+import { DongFood } from './components/DongFood'
+import { NeighborhoodMap } from './components/NeighborhoodMap'
+import { PhotoViewer } from './components/PhotoViewer'
+import { PlaceInfo } from './components/PlaceInfo'
+import { RainCheck } from './components/RainCheck'
+import './region.css'
+import { artistName } from './credit'
+
+// 지역 상세 (인스타그램 프로필형): 프로필 머리 → 동네 하이라이트 → 탭(동네·먹거리 / 언제 갈까 / 할 거리).
+// 지도·음식점·비 예보 부품은 예전 상세 화면과 같은 것을 쓴다.
+
+// 평소(100) 대비 혼잡도를 말로: ±5 안은 '평소와 비슷'
+const crowdWord = (i: number) => i >= 105 ? `평소보다 ${i - 100}% 붐빌 것으로 보여요` : i <= 95 ? `평소보다 ${100 - i}% 한산할 것으로 보여요` : '평소와 비슷할 것으로 보여요'
+
+type Tab = 'hoods' | 'course' | 'when' | 'acts'
+// 1인 여행 경비 추정 (국민여행조사). api.ts 는 다른 작업과 겹쳐 이 화면에서만 쓰는 타입을 여기 둔다
+type CostRow = { median: number; p25: number; p75: number; n: number; level: 'sigungu' | 'sido'; sido: string }
+type RegionCost = { day?: CostRow; '1night'?: CostRow; source: string }
+const won = (x: number) => x >= 100000 ? `${Math.round(x / 10000)}만` : `${(Math.round(x / 1000) / 10).toFixed(1).replace(/\.0$/, '')}만`
+
+const TABS: [Tab, string][] = [['hoods', '동네·먹거리'], ['course', '코스'], ['when', '언제 갈까'], ['acts', '할 거리']]
+
+export function FeedRegion({ regionKey, initialDong, saved, onToggleSave, onClose }: {
+  regionKey: string; initialDong?: string | null; saved: boolean; onToggleSave: () => void; onClose: () => void
+}) {
+  const [d, setD] = useState<RegionProfile | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [items, setItems] = useState<ActivityItem[] | null>(null)  // 축제·체험 줄에 쓴다
+  const [peek, setPeek] = useState<ActivityItem | null>(null)
+  const [about, setAbout] = useState<PlaceDetail | null>(null)  // 누른 축제·체험의 소개글 (처음 한 번 TourAPI 에서 받아 저장)
+  const [aboutErr, setAboutErr] = useState<string | null>(null)
+  const [spot, setSpot] = useState<PlaceDetail | null>(null)  // 대표 사진 장소의 주소·이용 시간·전화·위치 (예상 경비 아래)
+  const [viewing, setViewing] = useState(false)
+  useEffect(() => {
+    setAbout(null); setAboutErr(null)
+    if (!peek) return
+    let live = true  // 다른 카드를 누른 뒤 늦게 온 앞 장소의 응답은 버린다 (다른 곳의 전화·주소가 보이지 않게)
+    placeDetailApi(peek.id).then(x => { if (live) setAbout(x) }).catch(e => { if (live) setAboutErr(e.message) })
+    return () => { live = false }
+  }, [peek])
+  const [cost, setCost] = useState<RegionCost | null>(null)
+  const [dong, setDong] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('hoods')
+
+  useEffect(() => {
+    setD(null); setErr(null); setTab('hoods')
+    setItems(null); setPeek(null)
+    profileApi(regionKey).then(p => { setD(p); setDong(initialDong ?? p.neighborhoods.find(n => n.rank === 1)?.code ?? null) }).catch(e => setErr(e.message))
+    activitiesApi(regionKey).then(a => setItems(a.items)).catch(() => setItems(null))
+    setCost(null)
+    fetch(`/api/regions/${encodeURIComponent(regionKey)}/cost`).then(r => (r.ok ? r.json() : null)).then(setCost).catch(() => setCost(null))
+  }, [regionKey, initialDong])
+  const spotId = d?.photo?.attraction_id
+  useEffect(() => {
+    setSpot(null)
+    if (!spotId) return
+    let live = true
+    placeDetailApi(spotId).then(x => { if (live) setSpot(x) }).catch(() => {})  // 한도 초과 등이면 줄째 숨긴다
+    return () => { live = false }
+  }, [spotId])
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', esc); document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', esc); document.body.style.overflow = '' }
+  }, [onClose])
+
+  const r = d?.region
+  const ms = d?.months ?? []
+  const fc = ms.find(m => m.basis === 'forecast' && m.congestion_index != null)  // 우리 예측 모델 값 (이번 달)
+  const quiet = ms.filter(m => m.congestion_index != null).reduce<(typeof ms)[number] | null>((a, b) => (!a || b.congestion_index! < a.congestion_index! ? b : a), null)
+  const nActs = (d?.neighborhoods ?? []).reduce((s, h) => s + h.total, 0)  // 관광지·레포츠 (축제·음식점 제외)
+  const tags = r ? [
+    r.flags.sea && '#바다', r.mountain_n > 0 && '#산숲',
+    r.flags.city ? '#도시' : '#시골소도시',
+  ].filter(Boolean) as string[] : []
+  const c1 = cost?.['1night'], c0 = cost?.day
+  const placeBlock = d?.photo && spot ? (
+    <div className="igr-spot">
+      {/* 어느 장소인지는 사진 아래 줄(하트 옆)에 '대표 사진 장소'로 적혀 있다 */}
+      <PlaceInfo d={spot} name={d.photo.name} map={false} />
+    </div>
+  ) : null
+  const costLine = c1 ? (
+    <p className="igr-cost">
+      <span className="tag">예상 경비</span> 1박 2일 1인 <b>약 {won(c1.median)}원</b>으로 추정됩니다
+      <small> (보통 {won(c1.p25)}~{won(c1.p75)}원{c0 ? ` · 당일 약 ${won(c0.median)}원` : ''}{c1.level === 'sido' ? ` · ${c1.sido} 평균` : ''})</small>
+    </p>
+  ) : null
+  // 원형 프로필은 사진을 자르므로 변경이 허용되는 공공누리 1유형일 때만 사진을 쓴다
+  const avatar = d?.photo?.image_url ?? null
+  // 앞으로 열릴(또는 열리고 있는) 축제는 시작일 순, 체험은 그대로 (TourAPI 체험마을·체험장 등)
+  // 사진 줄에는 사진 있는 곳만 (사진 없는 곳은 '할 거리' 탭 지도·목록에 그대로 있다)
+  const allFests = (items ?? []).filter(i => i.group === 'festival' && i.schedule === '예정').sort((a, b) => (a.period ?? '').localeCompare(b.period ?? ''))
+  const allExps = (items ?? []).filter(i => i.group === 'experience')
+  // 사진 있는 곳을 앞에. 사진 없는 곳도 글자 카드로 보여 준다 (할 거리 탭에는 축제·체험을 넣지 않는다)
+  const photoFirst = (xs: ActivityItem[]) => [...xs.filter(i => i.image_url), ...xs.filter(i => !i.image_url)]
+  const fests = photoFirst(allFests), exps = photoFirst(allExps)
+
+  return (
+    <div className="igr" role="dialog" aria-modal="true" aria-label={r ? `${r.sido} ${r.name}` : '지역 정보'}>
+      <div className="igr-col">
+        <header className="igr-top">
+          <button type="button" onClick={onClose} aria-label="뒤로"><svg viewBox="0 0 24 24" className="ic" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></button>
+          <b>{r?.name ?? ''}</b>
+          <span />
+        </header>
+        {err && <p className="ig-err">{err}</p>}
+        {!d && !err && <p className="ig-wait">불러오는 중…</p>}
+        {d && r && <>
+          <section className="igr-head">
+            <span className="igr-av">{avatar ? <img src={avatar} alt="" /> : <i>{r.name.slice(0, 1)}</i>}</span>
+            <ul className="igr-stats">
+              <li><b>{nActs}</b><small>활동지</small></li>
+              <li><b>{d.food.n_places}</b><small>음식점</small></li>
+              <li><b>{items ? allFests.length : '–'}</b><small>열릴 축제</small></li>
+            </ul>
+          </section>
+          <div className="igr-bio">
+            <b>{r.sido} {r.name}</b>
+            <p className="igr-tags">{tags.join(' ')}</p>
+            {fc && <p><span className="tag">예측</span> {fc.month}월에는 <b>{crowdWord(fc.congestion_index!)}</b></p>}
+            {quiet && <p className="sub"><span className="tag ghost">실측</span> 가장 한산했던 달 {quiet.month}월 (평소의 {quiet.congestion_index}%)</p>}
+          </div>
+          {d.photo && <figure className="igr-photo top"><img src={d.photo.image_url} alt={d.photo.name} /></figure>}
+          {/* 하트는 사진 위가 아니라 사진 아래 줄 오른쪽에 (공공누리 3유형 사진에는 아무것도 얹지 않는다) */}
+          <div className="igr-cap">
+            <span>{d.photo && <><span className="tag">대표 사진 장소</span> <b>{d.photo.name}</b></>}</span>
+            <button type="button" className="igr-heart" aria-pressed={saved} onClick={onToggleSave} aria-label={saved ? '저장 취소' : '저장'}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-9.2-8.6C1.2 8.2 3 4.5 6.6 4.5c2.2 0 3.6 1.3 5.4 3.3 1.8-2 3.2-3.3 5.4-3.3 3.6 0 5.4 3.7 3.8 6.9C19 15.6 12 20 12 20z" /></svg>
+            </button>
+          </div>
+
+          {(fests.length > 0 || exps.length > 0) ? (
+            <section className="igr-now">
+              {fests.length > 0 && <>
+                <div className="igr-now-head"><b>열리는 축제</b><small>{fests.length}개 · 한국관광공사 축제 일정</small></div>
+                <ol data-drag>{fests.map(x => <NowCard key={x.id} x={x} on={peek?.id === x.id} sub={x.period ?? ''} onClick={() => { setPeek(x); setViewing(true) }} />)}</ol>
+              </>}
+              {costLine}{placeBlock}
+              {exps.length > 0 && <>
+                <div className="igr-now-head"><b>체험 활동</b><small>{exps.length}곳 · 체험마을·체험장 등</small></div>
+                <ol data-drag>{exps.map(x => <NowCard key={x.id} x={x} on={peek?.id === x.id} sub={x.kind} onClick={() => { setPeek(x); setViewing(true) }} />)}</ol>
+              </>}
+            </section>
+          ) : (costLine || placeBlock) && <section className="igr-now">{costLine}{placeBlock}</section>}
+
+          <nav className="igr-tabs" role="tablist">
+            {TABS.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
+          </nav>
+
+          {tab === 'hoods' && (
+            <section className="igr-sec">
+              <p className="igr-hint">번호는 관광지·레포츠가 많은 동네 Top 5예요. 동네를 누르면 지도가 확대되고 할 거리가 점으로, 아래에 음식점이 나와요.</p>
+              <NeighborhoodMap regionKey={regionKey} hoods={d.neighborhoods} focus={d.focus} name={r.name}
+                selected={dong} onSelect={setDong} />
+              {dong && <DongFood regionKey={regionKey} code={dong} name={d.neighborhoods.find(n => n.code === dong)?.name ?? ''} />}
+            </section>
+          )}
+          {tab === 'course' && (
+            <section className="igr-sec">
+              <CourseView regionKey={regionKey} regionName={r.name} />
+            </section>
+          )}
+          {tab === 'when' && (
+            <section className="igr-sec">
+              <h4>여행 날짜에 비가 올까</h4>
+              <RainCheck regionKey={regionKey} />
+              <p className="igr-hint">혼잡도는 시군구 전체의 외지인 방문자 수 기준이에요. 예측은 우리가 학습한 월 단위 모델(2025년 검증 오차 WAPE 5.6%) 값이에요.</p>
+            </section>
+          )}
+          {tab === 'acts' && (
+            <section className="igr-sec">
+              <ActivityMap sigunguKey={regionKey} sigunguName={r.name} attractionId={d.photo?.attraction_id ?? ''} onPick={x => { setPeek(x); setViewing(true) }} />
+            </section>
+          )}
+          {/* 축제·체험 카드를 누르면: 큰 사진(넘겨 보기) + 소개·기간·주소·전화·홈페이지 */}
+          {viewing && peek && (
+            <PhotoViewer cid={peek.id} name={peek.name} main={peek.image_url?.startsWith('/images/tour/') ? `${peek.image_url}?full=1` : peek.image_url} mainLicense={peek.license} onClose={() => { setViewing(false); setPeek(null) }}>
+              <p className="pv-sub">{peek.kind}{peek.period ? ` · ${peek.period}` : peek.distance_km != null ? ` · 사진 속 장소에서 ${peek.distance_km}km` : ''}</p>
+              {!about && !aboutErr && <p className="pv-sub">소개를 불러오는 중…</p>}
+              {aboutErr && <p className="pv-sub">{aboutErr}</p>}
+              {about?.overview && <p className="pv-txt">{about.overview}</p>}
+              {about && <PlaceInfo d={{ ...about, address: about.address ?? peek.address, lat: about.lat ?? peek.lat, lon: about.lon ?? peek.lon }} name={peek.name} />}
+            </PhotoViewer>
+          )}
+          <section className="igr-src" aria-label="출처">
+            <b>출처</b>
+            <ul>
+              {d.photo && <li>대표 사진: {d.photo.name} · 한국관광공사 TourAPI · {d.photo.license}</li>}
+              <li>이 화면의 국내 사진·관광지·음식점·축제·체험·여행코스: 한국관광공사 TourAPI (사진은 공공누리 제1유형 또는 제3유형. 원형 프로필 사진만 가운데를 잘라 표시)</li>
+              {d.notes.map(n => <li key={n}>{n}</li>)}
+              <li>음식점 사진 중 관광공사 사진이 없는 곳: 네이버 이미지 검색 결과 (네이버 플레이스·메뉴판닷컴 등, 저작권은 원 게시자)</li>
+              {cost && <li>예상 경비: {cost.source}. 출발지 교통비가 포함된 값이라 멀리서 오면 더 들 수 있음{c1?.level === 'sido' ? ` · 이 시군구는 표본이 적어 ${c1.sido} 값` : ''}</li>}
+              <li>코스 이동 시간: 카카오 길찾기 (조회 시점 기준, 자동차는 실시간 교통 반영, 도보는 직선 2km 이하 구간만)</li>
+              <li>지도: © OpenStreetMap contributors</li>
+              <li>해외 사진(탐색·사진으로 찾기 예시): Wikimedia Commons, 격자·카드에서는 가운데를 잘라 표시 <CommonsCredits /></li>
+            </ul>
+          </section>
+        </>}
+      </div>
+    </div>
+  )
+}
+
+// 출처는 지역 상세 맨 아래에만 둔다 (사용자 결정). 해외 예시 사진의 사진별 저작자·라이선스는 펼쳐서 본다
+function CommonsCredits() {
+  const [list, setList] = useState<DemoPhoto[] | null>(null)
+  return (
+    <details onToggle={e => { if ((e.target as HTMLDetailsElement).open && !list) api.demoPhotos().then(setList).catch(() => setList([])) }}>
+      <summary>사진별 저작자 보기</summary>
+      {list === null ? <p>불러오는 중…</p> : (
+        <ul>{list.map(p => <li key={p.photo_id}>{p.country} {p.place_name} {p.scene_label} · {artistName(p.artist)} · <a href={p.license_url} target="_blank" rel="noopener">{p.license}</a></li>)}</ul>
+      )}
+    </details>
+  )
+}
+
+// 축제·체험 카드: 사진(자르지 않음) + 이름 + 기간/종류. 누르면 아래에 주소·지도 링크
+function NowCard({ x, on, sub, onClick }: { x: ActivityItem; on: boolean; sub: string; onClick: () => void }) {
+  const [broken, setBroken] = useState(false)  // 사진이 없거나 원본이 지워진 곳(404)은 글자 카드로
+  return (
+    <li><button type="button" aria-pressed={on} onClick={onClick}>
+      <span className="ph">{x.image_url && !broken
+        ? <img src={x.image_url} alt={x.name} loading="lazy" onError={() => setBroken(true)} />
+        : <i>사진 없음</i>}</span>
+      <b>{x.name}</b><small>{sub}</small>
+    </button></li>
+  )
+}

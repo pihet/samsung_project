@@ -1,0 +1,427 @@
+/* 인스타그램형 시안 (#feed). 모든 규칙을 .ig 아래에 두어 기존 화면에 영향이 없게 한다. */
+.ig {
+  --ig-bg: #ffffff; --ig-ink: #0f1419; --ig-sub: #737373; --ig-line: #dbdbdb; --ig-soft: #f2f2f2;
+  --ig-ring: linear-gradient(45deg, #f9ce34, #ee2a7b 55%, #6228d7);
+  --ig-like: #ff3040;
+  max-width: 470px; margin: 0 auto; min-height: 100vh; background: var(--ig-bg); color: var(--ig-ink);
+  border-left: 1px solid var(--ig-line); border-right: 1px solid var(--ig-line);
+  padding-bottom: 64px; font-family: Pretendard, -apple-system, system-ui, sans-serif;
+}
+:root[data-theme="dark"] .ig { --ig-bg: #000000; --ig-ink: #f5f5f5; --ig-sub: #a8a8a8; --ig-line: #262626; --ig-soft: #121212 }
+body:has(.ig) { background: var(--ig-page, #fafafa) }
+:root[data-theme="dark"] body:has(.ig) { --ig-page: #000 }
+
+/* :where 로 우선순위를 낮춰, 다시 쓰는 기존 부품(지도·음식점·비 예보)의 버튼 스타일이 이기게 한다 */
+.ig :where(button) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0 }
+.ig .ic { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round }
+.ig .ic.fill { fill: currentColor }
+
+/* 위 막대 */
+.ig-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between;
+  height: 56px; padding: 0 16px; background: var(--ig-bg); border-bottom: 1px solid var(--ig-line) }
+.ig-logo { font-size: 24px; font-weight: 900; letter-spacing: -0.04em; background: none; border: 0; padding: 0; color: inherit; font-family: inherit; cursor: pointer }
+.ig-logo i { color: #ee2a7b; font-style: normal }
+.ig-top-act { display: flex; align-items: center; gap: 16px }
+.account-trigger { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #0095f6 !important; font-size: 13px !important; font-weight: 700 }
+.ig-old { font-size: 12px; color: var(--ig-sub); text-decoration: none; border: 1px solid var(--ig-line); border-radius: 999px; padding: 4px 10px }
+
+.ig-wait, .ig-err { text-align: center; color: var(--ig-sub); padding: 32px 16px; font-size: 14px }
+.ig-err { color: #ed4956 }
+
+/* 스토리 (분류) */
+.ig-stories { display: flex; gap: 14px; overflow-x: auto; padding: 14px 16px 12px; border-bottom: 1px solid var(--ig-line); scrollbar-width: none }
+.ig-stories::-webkit-scrollbar { display: none }
+.ig-stories button { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; width: 70px }
+.ig-stories .ring { width: 66px; height: 66px; border-radius: 50%; padding: 2.5px; background: var(--ig-line) }
+.ig-stories button[aria-pressed="true"] .ring { background: var(--ig-ring) }
+.ig-stories .in { display: block; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; border: 3px solid var(--ig-bg); background: var(--ig-soft) }
+/* 원형 썸네일은 공공누리 1유형 사진만 (FeedApp canCrop). 본문 사진은 자르지 않는다 */
+.ig-stories .in img { width: 100%; height: 100%; object-fit: cover }
+.ig-stories small { font-size: 12px; color: var(--ig-ink) }
+.ig-stories button[aria-pressed="false"] small { color: var(--ig-sub) }
+
+/* 사진으로 찾기 안내 */
+.ig-cta { display: flex !important; align-items: center; gap: 12px; width: calc(100% - 32px); margin: 12px 16px; padding: 12px 14px !important;
+  border: 1px solid var(--ig-line) !important; border-radius: 12px; text-align: left }
+.ig-cta .ic { flex: none; width: 28px; height: 28px; color: #ee2a7b }
+.ig-cta span { display: flex; flex-direction: column; gap: 2px }
+.ig-cta b { font-size: 14px }
+.ig-cta small { font-size: 12px; color: var(--ig-sub) }
+
+/* 순위 가로 줄 */
+.ig-strip { padding: 4px 0 12px; border-bottom: 1px solid var(--ig-line) }
+.ig-strip-head { display: flex; flex-direction: column; padding: 4px 16px 10px }
+.ig-strip-head b { font-size: 15px }
+.ig-strip-head small { font-size: 11.5px; color: var(--ig-sub) }
+.ig-strip ol { list-style: none; margin: 0; padding: 0 16px; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none }
+.ig-strip li { flex: none; width: 160px }
+.ig-strip li button { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left }
+.ig-strip .ph { position: relative; display: block; width: 160px; height: 120px; border-radius: 10px; overflow: hidden; background: var(--ig-soft) }
+.ig-strip .ph img { width: 100%; height: 100%; object-fit: contain }
+.ig-strip b { font-size: 13px }
+.ig-strip small { font-size: 11.5px; color: var(--ig-sub) }
+
+/* 피드 */
+.ig-feed { list-style: none; margin: 0; padding: 0 }
+.post { border-bottom: 1px solid var(--ig-line); padding-bottom: 12px }
+.post-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px }
+.post-head .av { width: 34px; height: 34px; border-radius: 50%; padding: 2px; background: var(--ig-ring); flex: none }
+.post-head .av i { width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--ig-bg); background: var(--ig-soft); display: grid; place-items: center; font-style: normal; font-size: 13px; font-weight: 800 }
+.post-head .av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--ig-bg); display: block }
+.post-head span:last-child { display: flex; flex-direction: column; line-height: 1.25 }
+.post-head b { font-size: 14px }
+.post-head small { font-size: 12px; color: var(--ig-sub) }
+/* 사진 비율 그대로 (3유형은 자르면 안 돼서 정사각형·4:5 틀을 쓰지 않는다) */
+.post-ph { display: block; width: 100%; min-height: 220px; background: var(--ig-soft) }
+.post-ph img { width: 100%; height: auto; max-height: 590px; object-fit: contain; display: block }
+.post-act { display: flex; align-items: center; gap: 14px; padding: 10px 14px 4px }
+.post-act button[aria-pressed="true"] { color: var(--ig-like) }
+.post-more { margin-left: auto; font-size: 13px !important; font-weight: 700; color: #0095f6 !important }
+.post-cap { margin: 2px 14px 0; font-size: 14px; line-height: 1.45; color: var(--ig-ink) }
+.post-cap b { margin-right: 4px }
+.post-credit { display: block; margin: 4px 14px 0; font-size: 11px; color: var(--ig-sub) }
+
+/* 탐색 격자 */
+.ig-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px }
+.ig-grid button { position: relative; aspect-ratio: 4 / 3; background: var(--ig-soft); overflow: hidden }
+.ig-grid img { width: 100%; height: 100%; object-fit: contain; display: block }
+
+/* 아래 탭 */
+.ig-tabs { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 470px; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr); height: 58px; background: var(--ig-bg); border-top: 1px solid var(--ig-line) }
+.ig-tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--ig-sub) }
+.ig-tabs button[aria-pressed="true"] { color: var(--ig-ink) }
+.ig-tabs small { font-size: 10.5px }
+
+@media (max-width: 470px) { .ig { border: 0 } }
+
+/* 자연어 여행 추천 */
+.ask { padding: 18px 16px 24px }
+.ask-head b { font-size: 22px; letter-spacing: -.03em }
+.ask-head p { margin: 5px 0 12px; color: var(--ig-sub); font-size: 13px; line-height: 1.5 }
+.ask-head div { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none }
+.ask-head div button { flex: none; padding: 7px 10px !important; border-radius: 999px; background: var(--ig-soft) !important; font-size: 12px !important }
+.ask-form { position: relative; margin-top: 14px; padding: 13px; border: 1px solid var(--ig-line); border-radius: 16px }
+.ask-form label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
+.ask-form textarea { display: block; width: 100%; resize: none; border: 0; outline: 0; padding: 0; color: var(--ig-ink); background: transparent; font: inherit; font-size: 15px; line-height: 1.5 }
+.ask-form textarea::placeholder { color: var(--ig-sub) }
+.ask-form button { display: block; margin: 8px 0 0 auto; padding: 9px 15px !important; border-radius: 999px; color: #fff !important; background: #0095f6 !important; font-size: 13px !important; font-weight: 800 !important }
+.ask-form button:disabled { opacity: .5; cursor: default }
+.ask-error { margin: 12px 0; color: #ed4956; font-size: 13px }
+.ask-summary { margin: 20px 0 10px; padding: 14px; border-radius: 14px; background: var(--ig-soft) }
+.ask-summary b { display: block }
+.ask-summary b { font-size: 14px; line-height: 1.45 }
+.ask-summary div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px }
+.ask-summary span { font-size: 11px; color: #0095f6 }
+/* 결과 카드: 세로로 쌓는다. 사진은 자르지 않고(공공누리 3유형) 번호는 이름 옆에 */
+.ask-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px }
+.ask-cards li { position: relative; border: 1.5px solid var(--ig-line); border-radius: 16px; background: var(--ig-bg) }
+.ask-cards li.top { border-color: #ee2a7b }
+.ask-card { display: flex; align-items: center; width: 100%; gap: 12px; padding: 10px 40px 10px 10px !important; text-align: left; color: var(--ig-ink) }
+.ask-card img { flex: none; width: 104px; height: 84px; object-fit: contain; border-radius: 12px; background: var(--ig-soft) }
+.ask-rank { flex: none; width: 20px; height: 20px; margin-right: 6px; display: inline-grid; place-items: center; border-radius: 50%; color: #fff; background: #ee2a7b; font-size: 11px; font-weight: 800; vertical-align: 2px }
+.ask-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px }
+.ask-copy b { font-size: 15.5px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ask-copy small { color: var(--ig-sub); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px }
+.ask-chips i { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px; border: 1px solid var(--ig-line); border-radius: 7px; font-size: 11.5px; font-style: normal; color: var(--ig-sub); background: var(--ig-soft) }
+.ask-chips i svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8 }
+.ask-chips i.crowd { color: var(--ig-ink); font-weight: 700 }
+.ask-chips i.crowd.busy { color: #ed4956 }
+.ask-chips i.crowd.calm { color: #0095f6 }
+.ask-chips i.more { color: var(--ig-ink); background: transparent; font-weight: 600 }
+.ask-save { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; display: grid; place-items: center; color: var(--ig-sub) }
+.ask-save svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8 }
+.ask-save[aria-pressed="true"] { color: #ed4956 }
+.ask-save[aria-pressed="true"] svg { fill: currentColor }
+
+/* 계정 */
+.account-layer { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow-y: auto; padding: 24px 16px; background: rgba(0, 0, 0, .58); backdrop-filter: blur(3px) }
+.account-card { position: relative; width: min(100%, 400px); padding: 36px 32px 30px; border-radius: 18px; color: #151515; background: #fff; border: 1px solid #ececec; box-shadow: 0 24px 80px rgba(0, 0, 0, .25) }
+.account-card h2, .account-card p { margin: 0 }
+.account-close { position: absolute; right: 13px; top: 11px; width: 36px; height: 36px; border-radius: 50% !important; display: grid; place-items: center; font-size: 24px !important; line-height: 1; color: #777 !important }
+.account-close:hover { background: #f5f5f5 !important; color: #111 !important }
+.account-head { margin-bottom: 28px; text-align: center }
+.account-head h2 { font-size: 22px; line-height: 1.2; letter-spacing: -.035em }
+.account-head p { margin-top: 10px; color: #777; font-size: 13px; line-height: 1.5 }
+.account-social { display: flex; justify-content: center; gap: 22px }
+.account-social button { width: 48px; height: 48px; border-radius: 50% !important; display: grid; place-items: center; border: 1px solid #e4e4e4 !important; transition: transform .12s ease, box-shadow .12s ease }
+.account-social button:hover { transform: translateY(-2px); box-shadow: 0 5px 14px rgba(0, 0, 0, .12) }
+.account-social button.google { background: #fff !important; color: #4285f4 !important }
+.account-social button.kakao { background: #fee500 !important; color: #191919 !important; border-color: #fee500 !important }
+.account-provider-logo.google { width: 20px; height: 20px }
+.account-provider-logo.kakao { width: 25px; height: 23px }
+.account-divider { display: flex; align-items: center; gap: 13px; margin: 26px 0 18px; color: #999; font-size: 12px }
+.account-divider::before, .account-divider::after { content: ''; height: 1px; flex: 1; background: #e7e7e7 }
+.account-divider span { white-space: nowrap }
+.account-form { display: flex; flex-direction: column; gap: 10px }
+.account-field { display: block }
+.account-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap }
+.account-field input { width: 100%; height: 49px; border: 1px solid #d9d9d9; border-radius: 0; outline: 0; background: #fff; color: #151515; padding: 0 14px; font: inherit; font-size: 14px; transition: border-color .15s ease, box-shadow .15s ease }
+.account-field input::placeholder { color: #999 }
+.account-field input:focus { border-color: #222; box-shadow: inset 0 0 0 1px #222 }
+.account-password { position: relative; display: block }
+.account-password input { padding-right: 58px }
+.account-password button { position: absolute; top: 0; right: 5px; width: 42px; height: 49px; display: grid; place-items: center; color: #aaa !important }
+.account-password button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5 }
+.account-submit { width: 100%; height: 48px; margin-top: 14px; border-radius: 999px !important; display: grid; place-items: center; background: #111 !important; color: #fff !important; font-size: 14px !important; font-weight: 800 !important }
+.account-submit.secondary { background: #f2f2f2 !important; color: #151515 !important }
+.account-social button:disabled, .account-submit:disabled { cursor: wait; opacity: .62; transform: none }
+.account-message { margin-top: 14px !important; padding: 10px 12px; color: #c62828 !important; background: #fff0f1; font-size: 12.5px !important; line-height: 1.45 }
+.account-foot { margin-top: 23px; text-align: center; color: #777; font-size: 13px }
+.account-foot button { color: #151515 !important; font-size: inherit !important; font-weight: 700 !important; text-decoration: underline; text-underline-offset: 3px }
+.account-profile { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center }
+.account-avatar { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); color: #fff; font-size: 26px; font-weight: 900 }
+.account-profile h2 { font-size: 23px }
+.account-profile p { margin-top: 4px; color: #777; font-size: 13px }
+@media (max-width: 470px) {
+  .account-layer { padding: 0; align-items: end }
+  .account-card { width: 100%; max-height: 94vh; overflow-y: auto; padding: 34px 24px 26px; border-radius: 18px 18px 0 0; border-bottom: 0 }
+}
+
+/* ---------- 사진으로 찾기 ---------- */
+.ig-pick, .ig-res { padding-bottom: 8px }
+.ig-upload { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; margin: 16px; padding: 24px 16px;
+  border: 1px dashed var(--ig-line); border-radius: 16px }
+.ig-upload b { font-size: 17px }
+.ig-upload small { font-size: 12.5px; color: var(--ig-sub) }
+.ig-retain { display: flex; align-items: center; gap: 6px; color: var(--ig-sub); font-size: 12px }
+.ig-upload div { display: flex; gap: 8px; margin: 6px 0 2px }
+.ig-btn { position: relative; display: inline-flex; align-items: center; height: 38px; padding: 0 16px; border-radius: 10px; font-size: 14px; font-weight: 700;
+  border: 1px solid var(--ig-line); cursor: pointer }
+.ig-btn.primary { background: #0095f6; border-color: #0095f6; color: #fff }
+.ig-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer }
+.ig-search { padding: 4px 16px 12px }
+.ig-search input { width: 100%; height: 38px; border-radius: 10px; border: 0; background: var(--ig-soft); color: var(--ig-ink); padding: 0 14px; font: inherit; font-size: 14px }
+.ig-foot { margin: 10px 16px; font-size: 11px; color: var(--ig-sub) }
+.ig-foot a { color: inherit }
+.ig-link { color: #0095f6 !important; font-size: 13px !important; font-weight: 700 }
+
+.ig-crop { padding: 8px 16px }
+.ig-crop .crop-step h2 { font-size: 18px }
+.ig-crop .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px }
+.ig-crop .actions button { height: 38px; padding: 0 16px; border-radius: 10px; font-size: 14px; font-weight: 700; border: 1px solid var(--ig-line) }
+.ig-crop .actions button.primary { background: #0095f6; border-color: #0095f6; color: #fff }
+.ig-crop .actions button:disabled { opacity: .6 }
+
+.ig-mine { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--ig-line) }
+.ig-mine img { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; flex: none }
+.ig-mine div { display: flex; flex-direction: column; align-items: flex-start; gap: 2px }
+.ig-mine b { font-size: 15px }
+.ig-mine small { font-size: 12.5px; color: var(--ig-sub) }
+.ig-mine .ig-credit { font-size: 10.5px; line-height: 1.4 }  /* 커먼즈 사진 작가·라이선스 (CC BY·BY-SA 표시 의무) */
+.ig-credit a { color: inherit; text-decoration: underline }
+
+.ig-pills { display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px 0; scrollbar-width: none }
+.ig-pills.tags { padding-bottom: 10px; border-bottom: 1px solid var(--ig-line) }
+.ig-pills button, .ig-pills select { flex: none; height: 32px; padding: 0 12px !important; border-radius: 8px; font-size: 13px !important; font-weight: 600;
+  background: var(--ig-soft) !important; color: var(--ig-ink); border: 0; font-family: inherit }
+.ig-pills button[aria-pressed="true"] { background: var(--ig-ink) !important; color: var(--ig-bg) }
+.ig-pills.tags button[aria-pressed="false"] { color: var(--ig-sub); text-decoration: line-through }
+
+.rank-badge { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 14px;
+  color: #fff; background: var(--ig-ring) }
+.carousel { position: relative; background: var(--ig-soft) }
+.carousel .track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none }
+.carousel .track::-webkit-scrollbar { display: none }
+.carousel figure { position: relative; flex: none; width: 100%; margin: 0; scroll-snap-align: start; display: flex; align-items: center; justify-content: center; min-height: 220px }
+.carousel img { width: 100%; height: auto; max-height: 590px; object-fit: contain; display: block }
+.carousel .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border-radius: 50% !important;
+  background: rgba(255, 255, 255, .9) !important; color: #000 !important; font-size: 20px !important; line-height: 1; box-shadow: 0 1px 4px rgba(0, 0, 0, .25) }
+.carousel .nav.next { right: 10px }
+.carousel .nav.prev { left: 10px }
+.carousel .dots { display: flex; justify-content: center; align-items: center; gap: 4px; padding: 8px 0 0; background: var(--ig-bg) }
+.carousel .dots span { font-size: 12px; font-weight: 700; color: var(--ig-sub); margin-right: 6px }
+.carousel .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--ig-line) }
+.carousel .dots i.on { background: #0095f6 }
+.ig-res .post-act { padding-top: 4px }
+.post-act .txt { font-size: 13px !important; font-weight: 600; color: var(--ig-sub) !important; border: 1px solid var(--ig-line) !important; border-radius: 999px; padding: 4px 10px !important }
+.post-act .txt[aria-pressed="true"] { color: var(--ig-bg) !important; background: var(--ig-ink) !important; border-color: var(--ig-ink) !important }
+.post-cap.tags { display: flex; flex-wrap: wrap; gap: 2px 6px; font-size: 13px; color: var(--ig-sub) }
+.post-cap.tags span { color: #00376b; font-weight: 600 }
+.post-cap.tags.diff span { color: #b4462a }
+:root[data-theme="dark"] .post-cap.tags span { color: #e0f1ff } :root[data-theme="dark"] .post-cap.tags.diff span { color: #ffb4a0 }
+.post-links { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 14px 0; font-size: 13px }
+.post-links a { color: var(--ig-sub) }
+.ig-more { display: block !important; width: calc(100% - 32px); margin: 14px 16px; height: 40px; border-radius: 10px; border: 1px solid var(--ig-line) !important;
+  font-weight: 700; font-size: 14px }
+
+/* ---------- 지역 상세 (프로필형) ---------- */
+.igr { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: var(--ig-page, #fafafa) }
+:root[data-theme="dark"] .igr { background: #000 }
+.igr-col { max-width: 470px; min-height: 100%; margin: 0 auto; background: var(--ig-bg); border-left: 1px solid var(--ig-line); border-right: 1px solid var(--ig-line); padding-bottom: 32px }
+.igr-top { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; height: 52px; padding: 0 8px;
+  background: var(--ig-bg); border-bottom: 1px solid var(--ig-line) }
+.igr-top b { text-align: center; font-size: 16px }
+.igr-top button { width: 40px; height: 40px; display: grid; place-items: center }
+.igr-head { display: flex; align-items: center; gap: 24px; padding: 16px 16px 8px }
+.igr-av { width: 86px; height: 86px; flex: none; border-radius: 50%; padding: 3px; background: var(--ig-ring) }
+.igr-av img, .igr-av i { width: 100%; height: 100%; border-radius: 50%; border: 3px solid var(--ig-bg); display: grid; place-items: center; object-fit: cover;
+  background: var(--ig-soft); font-style: normal; font-size: 30px; font-weight: 800 }
+.igr-stats { list-style: none; margin: 0; padding: 0; flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); text-align: center }
+.igr-stats b { display: block; font-size: 18px; font-variant-numeric: tabular-nums }
+.igr-stats small { font-size: 13px; color: var(--ig-sub) }
+.igr-bio { padding: 0 16px; display: flex; flex-direction: column; gap: 3px; font-size: 14px }
+.igr-bio p { margin: 0 }
+.igr-bio .sub { color: var(--ig-sub); font-size: 13px }
+.igr-tags { color: #00376b; font-weight: 600 }
+:root[data-theme="dark"] .igr-tags { color: #e0f1ff }
+.igr-bio .tag { font-size: 10.5px; font-weight: 700; border-radius: 4px; padding: 1px 5px; background: #ee2a7b; color: #fff; vertical-align: 1px }
+.igr-bio .tag.ghost { background: transparent; color: var(--ig-sub); border: 1px solid var(--ig-line) }
+.igr-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 12px 16px }
+.igr-btns button { height: 34px; border-radius: 8px; font-size: 14px; font-weight: 700; background: var(--ig-soft) }
+.igr-btns button.primary { background: #0095f6; color: #fff }
+.igr-btns button[aria-pressed="true"] { color: var(--ig-like) }
+.igr-btns button:only-child { grid-column: 1 / -1 }
+.igr-hl { display: flex; gap: 14px; overflow-x: auto; padding: 4px 16px 14px; scrollbar-width: none }
+.igr-hl button { flex: none; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 5px }
+.igr-hl .ring { width: 62px; height: 62px; border-radius: 50%; border: 2px solid; display: grid; place-items: center; background: var(--ig-soft);
+  box-shadow: inset 0 0 0 3px var(--ig-bg) }
+.igr-hl .ring b { font-size: 22px; font-weight: 900 }
+.igr-hl small { font-size: 12px; max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.igr-hl button[aria-pressed="true"] small { font-weight: 800 }
+.igr-hl button[aria-pressed="true"] .ring { box-shadow: inset 0 0 0 3px var(--ig-bg), 0 0 0 2px var(--ig-ink) }
+.igr-tabs { position: sticky; top: 52px; z-index: 4; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--ig-bg);
+  border-top: 1px solid var(--ig-line); border-bottom: 1px solid var(--ig-line) }
+.igr-tabs button { height: 44px; font-size: 13.5px; font-weight: 600; color: var(--ig-sub); border-top: 2px solid transparent !important; margin-top: -1px }
+.igr-tabs button[aria-selected="true"] { color: var(--ig-ink); border-top-color: var(--ig-ink) !important }
+.igr-sec { padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 10px }
+.igr-sec h4 { margin: 4px 0 0; font-size: 15px }
+.igr-photo { margin: 0 -12px; background: var(--ig-soft) }
+.igr-photo img { width: 100%; height: auto; max-height: 520px; object-fit: contain; display: block }
+.igr-photo figcaption { font-size: 11px; color: var(--ig-sub); padding: 4px 12px; background: var(--ig-bg) }
+.igr-hint { margin: 0; font-size: 12.5px; color: var(--ig-sub) }
+.igr-notes { margin: 16px 16px 0; padding-left: 16px; font-size: 11px; color: var(--ig-sub) }
+/* Leaflet 레이어(z-index 400~1000)가 위쪽 고정 제목·탭 위로 올라오지 않게 지도 영역을 가둔다 */
+.igr-sec { isolation: isolate }
+.igr .df-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px }
+
+/* 사진 위에 글자를 덮지 않는다 (공공누리 3유형 변경 금지) */
+.igr button.df-ph em { display: none }
+.ig-strip.fest .ph i { display: grid; place-items: center; height: 100%; padding: 8px; font-style: normal; font-size: 12px; color: var(--ig-sub); text-align: center }
+.ig-strip .when { font-size: 11.5px; font-weight: 700; color: var(--ig-sub) }
+.ig-strip .when.new { color: #ee2a7b }
+.ig-strip.fest b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3 }
+
+/* ---------- 여행코스 ---------- */
+.course { display: flex; flex-direction: column; gap: 10px }
+.course-pick { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px }
+.course-pick button { flex: none; max-width: 210px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  border: 1px solid var(--ig-line) !important; border-radius: 12px; padding: 8px 12px !important }
+.course-pick button[aria-selected="true"] { border-color: var(--ig-ink) !important; box-shadow: inset 0 0 0 1px var(--ig-ink) }
+.course-pick b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 186px }
+.course-pick small { font-size: 11.5px; color: var(--ig-sub) }
+.course-head { display: flex; flex-direction: column; gap: 2px }
+.course-head b { font-size: 16px }
+.course-head small { font-size: 12.5px; color: var(--ig-sub) }
+.course-map { height: 300px; border-radius: 12px; overflow: hidden; border: 1px solid var(--ig-line) }
+.course-pin { width: 0 !important; height: 0 !important; overflow: visible }
+.course-pin span { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  background: #ee2a7b; color: #fff; border: 2px solid #fff; font: 800 13px/1 Pretendard, system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0, 0, 0, .35) }
+.course-stops { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column }
+.course-stops li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; position: relative; padding-bottom: 18px }
+.course-stops li::before { content: ''; position: absolute; left: 14px; top: 30px; bottom: 0; border-left: 2px dashed var(--ig-line) }
+.course-stops li:last-child::before { display: none }
+.course-stops .n { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: #ee2a7b; color: #fff; font-weight: 800; font-size: 13px }
+.course-stops div { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 4px }
+.course-stops b { font-size: 15px }
+.course-stops .kind { font-size: 12px; color: var(--ig-sub) }
+.course-stops figure { margin: 4px 0 0; background: var(--ig-soft); border-radius: 10px; overflow: hidden }
+.course-stops figure img { width: 100%; height: auto; max-height: 240px; object-fit: contain; display: block }
+.course-stops figcaption { font-size: 10.5px; color: var(--ig-sub); padding: 3px 8px; background: var(--ig-bg) }
+.course-stops p { margin: 2px 0 0; font-size: 13px; line-height: 1.5; color: var(--ig-ink) }
+.course-stops a { font-size: 12.5px; color: var(--ig-sub) }
+
+/* ---------- 지역 검색 ---------- */
+.igs { position: fixed; inset: 0; z-index: 45; overflow-y: auto; background: var(--ig-page, #fafafa) }
+:root[data-theme="dark"] .igs { background: #000 }
+.igs-col { max-width: 470px; min-height: 100%; margin: 0 auto; background: var(--ig-bg); border-left: 1px solid var(--ig-line); border-right: 1px solid var(--ig-line) }
+.igs-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 8px 12px 8px 4px; background: var(--ig-bg); border-bottom: 1px solid var(--ig-line) }
+.igs-top > button { width: 40px; height: 40px; display: grid; place-items: center; flex: none }
+.igs-box { flex: 1; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border-radius: 10px; background: var(--ig-soft) }
+.igs-box .ic { width: 18px; height: 18px; color: var(--ig-sub); flex: none }
+.igs-box input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ig-ink); font: inherit; font-size: 15px }
+.igs-box .clr { width: 20px; height: 20px; border-radius: 50%; background: var(--ig-sub); color: var(--ig-bg); font-size: 14px; line-height: 1; display: grid; place-items: center }
+.igs-sec { padding: 14px 0 4px }
+.igs-head { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 6px }
+.igs-head b { font-size: 15px }
+.igs-list { list-style: none; margin: 0; padding: 4px 0 }
+.igs-list button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 16px; text-align: left }
+.igs-list button:hover { background: var(--ig-soft) }
+.igs-list .av { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; flex: none; background: var(--ig-soft); display: grid; place-items: center }
+.igs-list .av img { width: 100%; height: 100%; object-fit: cover }
+.igs-list .av i { font-style: normal; font-weight: 800; font-size: 16px }
+.igs-list .tx { display: flex; flex-direction: column; min-width: 0 }
+.igs-list b { font-size: 14.5px }
+.igs-list small { font-size: 12.5px; color: var(--ig-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.igs-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 16px }
+.igs-chips button { height: 32px; padding: 0 12px; border-radius: 8px; background: var(--ig-soft); font-size: 13.5px; font-weight: 600 }
+.igs-chips small { color: var(--ig-sub); font-weight: 500; margin-left: 2px }
+
+/* ---------- 지역 상세: 열리는 축제·체험 ---------- */
+.igr-now { padding: 0 0 12px; border-top: 1px solid var(--ig-line) }
+.igr-now-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px }
+.igr-now-head b { font-size: 14.5px }
+.igr-now-head small { font-size: 11.5px; color: var(--ig-sub) }
+.igr-now ol { list-style: none; margin: 0; padding: 0 16px; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none }
+.igr-now li { flex: none; width: 132px }
+.igr-now li button { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left }
+.igr-now .ph { display: block; width: 132px; height: 99px; border-radius: 10px; overflow: hidden; background: var(--ig-soft) }
+.igr-now .ph img { width: 100%; height: 100%; object-fit: contain }
+.igr-now .ph i { display: grid; place-items: center; height: 100%; padding: 6px; font-style: normal; font-size: 11.5px; color: var(--ig-sub); text-align: center }
+.igr-now li button[aria-pressed="true"] .ph { box-shadow: 0 0 0 2px var(--ig-ink) }
+.igr-now li b { font-size: 12.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.igr-now li small { font-size: 11px; color: var(--ig-sub) }
+.igr-peek { margin: 10px 16px 0; padding: 10px 12px; border: 1px solid var(--ig-line); border-radius: 12px; display: flex; flex-direction: column; gap: 3px }
+.igr-peek b { font-size: 14.5px }
+.igr-peek small { font-size: 12.5px; color: var(--ig-sub) }
+.igr-peek a { font-size: 13px; font-weight: 700; color: #0095f6 }
+.igr-peek .lic { font-size: 11px }
+
+/* 지역 상세 맨 끝 출처 */
+.igr-src { margin: 20px 16px 0; padding-top: 12px; border-top: 1px solid var(--ig-line) }
+.igr-src b { font-size: 12.5px; color: var(--ig-sub) }
+.igr-src ul { margin: 6px 0 0; padding-left: 16px; font-size: 11px; color: var(--ig-sub); line-height: 1.55 }
+
+/* ---------- 탐색: 해외 사진 격자 ---------- */
+.igx-head { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 6px }
+.igx-head b { font-size: 20px; font-weight: 900 }
+.igx-head small { font-size: 12.5px; color: var(--ig-sub) }
+.igx-chips { position: sticky; top: 56px; z-index: 10; display: flex; gap: 8px; overflow-x: auto; padding: 8px 16px 10px; background: var(--ig-bg); scrollbar-width: none }
+.igx-chips button { flex: none; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--ig-line); font-size: 13.5px; font-weight: 700; color: var(--ig-sub) }
+.igx-chips button small { font-weight: 500; margin-left: 2px }
+.igx-chips button[aria-pressed="true"] { background: var(--ig-ink); border-color: var(--ig-ink); color: var(--ig-bg) }
+.igx-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; grid-auto-flow: dense; gap: 2px }
+.igx-grid button { position: relative; aspect-ratio: 1; overflow: hidden; background: var(--ig-soft) }
+.igx-grid button.big { grid-column: span 2; grid-row: span 2 }
+.igx-grid img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s }
+.igx-grid button:hover img { transform: scale(1.04) }
+.igx-grid span { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; padding: 18px 7px 6px; text-align: left; color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .62)) }
+.igx-grid span b { font-size: 11.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.igx-grid span small { font-size: 10.5px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.igx-grid button.big span b { font-size: 14px }
+.igx-grid button.big span small { font-size: 12px }
+
+.igr-photo.top { margin: 4px 0 0 }
+.igr-photo.top figcaption { padding: 6px 16px 0; font-size: 12.5px; color: var(--ig-sub) }
+.igr-peek-txt { margin: 4px 0; font-size: 13.5px; line-height: 1.55; color: var(--ig-ink); max-height: 9.5em; overflow-y: auto }
+.igr-peek-links { display: flex; gap: 14px; align-items: center; margin-top: 2px }
+.igr-peek-links a, .igr-peek-links button { font-size: 13px; font-weight: 700; color: #0095f6 }
+
+/* 지도 아래 동네 Top 5: 한 줄씩 길게 내려가지 않게 두 칸 격자로 */
+.igr .hoods-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 8px; list-style: none; margin: 0 }
+.igr .hoods-legend li { margin: 0 }
+.igr .hoods-legend button { width: 100%; height: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; text-align: left }
+.igr .hoods-legend button b { font-size: 14px; display: block }
+.igr .hoods-legend button small { font-size: 11px; line-height: 1.35; display: block }
+.igr .hoods-legend .n { flex: none; width: 24px; height: 24px; font-size: 12px }
+
+/* 마우스로 끌어 넘기는 가로 줄 (dragScroll.ts) */
+@media (pointer: fine) { [data-drag] { cursor: grab } }
+[data-drag].dragging { cursor: grabbing; scroll-snap-type: none; user-select: none }
+[data-drag] img { -webkit-user-drag: none; user-select: none }
+
+/* 내 사진의 장면 태그 (눌러지지 않는 표시) */
+.ig-mytags { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--ig-line); font-size: 13.5px; font-weight: 600; color: #00376b }
+:root[data-theme="dark"] .ig-mytags { color: #e0f1ff }

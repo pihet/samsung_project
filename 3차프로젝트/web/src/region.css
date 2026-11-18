@@ -1,0 +1,59 @@
+/* 지역 상세 보완 스타일 (feed.css 뒤에 읽히도록 선택자를 .ig 로 한 단계 높인다) */
+.ig .igr-bio .tag { display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 2.5px 6px; vertical-align: 2px }  /* Pretendard에서 위아래 같은 여백이 가운데 (윈도우·리눅스 Chrome 4배 확대로 확인) */
+.ig .igr-cap { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px 4px 16px; font-size: 12.5px; color: var(--ig-sub) }
+.ig .igr-heart { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--ig-ink); cursor: pointer }
+.ig .igr-heart svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8 }
+.ig .igr-heart[aria-pressed="true"] { color: var(--ig-like, #ff3040) }
+.ig .igr-heart[aria-pressed="true"] svg { fill: currentColor }
+.ig .igr-cost { margin: 10px 16px 6px; font-size: 14px; line-height: 1.5 }
+.ig .igr-cost .tag { display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 2.5px 6px; vertical-align: 2px; font-size: 10.5px; font-weight: 700; border-radius: 4px; background: #0095f6; color: #fff; margin-right: 4px }
+.ig .igr-cost small { color: var(--ig-sub); font-size: 12px }
+.ig .course-leg { margin: 10px 0 0; font-size: 12.5px; color: var(--ig-sub) }  /* 다음 정류장까지 이동 시간 (정류장 설명 맨 아래) */
+/* 축제·체험 카드를 눌렀을 때 사진 보기 아래 장소 정보 (사진 보기는 어두운 바탕) */
+.pv { overflow-y: auto }
+.pv-info { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 12px }
+.pv-info .pv-sub { margin: 0; font-size: 13px; color: #aab2b6 }
+.pv-info .pv-txt { margin: 4px 0; font-size: 14.5px; line-height: 1.65; color: #eef1f2; white-space: pre-line }
+.pv-info .pv-links { margin: 4px 0 0; display: flex; gap: 14px; font-size: 14px }
+.pv-info .pv-links a { color: #6cc4ff }
+.ig .pv-overlay { background: #0a0c0e }  /* 뒤 화면이 비치지 않게 */
+.pv-thumbs { scrollbar-width: none } .pv-thumbs::-webkit-scrollbar { display: none }
+.ig .df-nophoto { font-size: 13px; color: var(--ig-sub) }
+.ig .df-nophoto summary { cursor: pointer; padding: 4px 0 }
+.ig .df-nophoto ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7 }
+.ig .df-nophoto b { color: var(--ig-ink); font-weight: 600 }
+/* 코스 정류장 번호 동그라미가 점선 위에 오게 (점선이 동그라미를 뚫고 지나가 보이던 문제) */
+.ig .course-stops .n { position: relative; z-index: 1 }
+.ig .course-stops li::before { z-index: 0 }
+
+/* 사진 보기 아래 장소 정보 (PlaceInfo): 주소·이용 시간·전화·홈페이지 줄 + 위치 지도 */
+.pi { --pi-ink: #eef1f2; --pi-sub: #aab2b6; --pi-line: #2a2f33; --pi-icon: #9aa3a8; --pi-btn: #3a4146; --pi-link: #6cc4ff; --pi-tel: #ff5c8a
+  margin-top: 6px; border-top: 1px solid var(--pi-line) }
+/* 지역 상세 화면(밝은·어두운 테마)에서는 화면 색을 따른다 */
+.ig .igr-spot .pi { --pi-ink: var(--ig-ink); --pi-sub: var(--ig-sub); --pi-line: var(--ig-line); --pi-icon: var(--ig-sub); --pi-btn: var(--ig-line); --pi-link: #0095f6; --pi-tel: #e8396f }
+.pi-row { display: flex; align-items: flex-start; gap: 12px; padding: 13px 2px; border-bottom: 1px solid var(--pi-line); font-size: 14.5px; color: var(--pi-ink); line-height: 1.5 }
+.pi-row > svg { flex: none; width: 20px; height: 20px; margin-top: 1px; fill: none; stroke: var(--pi-icon); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round }
+.pi-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere }
+.pi-row small { font-size: 12.5px; color: var(--pi-sub) }
+.pi-pre { white-space: pre-line }
+.pi-row button { flex: none; height: 30px; padding: 0 12px; border: 1px solid var(--pi-btn); border-radius: 8px; background: transparent; color: var(--pi-ink); font-size: 13px; font-weight: 600; cursor: pointer }
+.pi-row a { color: var(--pi-tel); text-decoration: underline; text-underline-offset: 3px }
+.pi-row a.plain { color: var(--pi-link) }
+.pi-map { height: 180px; margin-top: 12px; border-radius: 12px; overflow: hidden; background: #1a1e21 }
+.pi-kakao { display: inline-block; margin-top: 8px; font-size: 13px; color: var(--pi-link) }
+
+/* 예상 경비 아래 '대표 사진 장소' 정보 */
+.ig .igr-spot { margin: 0 16px 10px }
+.ig .igr-cap b { font-size: 14px; font-weight: 700; color: var(--ig-ink) }
+.ig .igr-cap .tag { display: inline-flex; align-items: center; line-height: 1; padding: 2.5px 6px; vertical-align: 2px; font-size: 10.5px; font-weight: 700; border-radius: 4px; background: #ee2a7b; color: #fff; margin-right: 4px }
+.ig .igr-spot .pi-map { background: var(--ig-soft) }
+
+/* 할 거리 (ActivityMap): 분류 칩 한 줄(넘치면 옆으로 밀기), 설명 한 줄 */
+.ig .acts-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none }
+.ig .acts-chips button { flex: none }
+.ig .acts-note { margin: 0; font-size: 12px; color: var(--ig-sub) }
+
+/* 할 거리 카드: AI 여행 카드(.ask-cards)를 그대로 쓰고 번호 색만 묶음 색으로, 고른 카드는 묶음 색 테두리 */
+.ig .acts-cards .ask-rank { background: var(--g, #ee2a7b) }
+.ig .acts-cards .ask-card { padding-right: 10px !important }
+.ig .acts-cards .ask-chips i:first-child { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 22px }

@@ -1,0 +1,451 @@
+"""추천 엔진: Stage A(시각 후보) + Stage B(조건 재정렬).
+
+Stage A  질의 사진 → CLIP ViT-B/32 → 국내 관광지 대표사진과 코사인 → 관광지별 최고 1장
+         → 상위 100개 관광지 유사도를 시군구별 합산(vote100) → 시군구 상위 30곳
+Stage B  30곳 안에서만 재정렬. visual 은 Stage A 순서 그대로, 그 밖은 0.5·시각 + 0.5·조건 백분위
+         (시각 가중치는 0.5 아래로 내리지 않는다)
+
+기존 평가 코드(src/model)의 인덱스·사진 목록을 읽기만 한다.
+"""
+
+import io
+import re
+import statistics
+import uuid
+from collections import defaultdict
+
+import numpy as np
+from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
+
+from .context import Context, ORIGINS, cp  # noqa: F401  (cp: clip_proto)
+from .query_cache import QueryCache
+from .tags import Tagger
+
+import scene_catalog as sc  # noqa: E402  (context 가 sys.path 를 맞춘다)
+
+register_heif_opener()  # 아이폰 HEIC 사진 (#4)
+
+VOTE_K = 100
+N_CAND = 30
+VISUAL_WEIGHT = 0.5
+# 개인 맞춤 (docs/PERSONALIZATION_AND_DB_PLAN.md 5장): 로그인 사용자의 좋아요·별로예요·하트가 이만큼 모이면 켠다
+PERSONAL_MIN = 3
+PERSONAL_WEIGHT = 0.2  # 0.3을 넘기지 않는다 (사진 닮음이 주 신호)
+FEEDBACK_WEIGHT = 0.25  # 사진별 다른 사용자 반응 (community)
+FEEDBACK_PRIOR = 2  # 표가 적을 때 덜 움직이게 (닮았어요 1개면 0.33, 5개면 0.71)
+PRIORITIES = ("visual", "crowd", "near", "season")
+# 관광공사 분류 'NA02 자연경관(하천·해양)'에는 강·호수·저수지도 들어 있어 소분류로 바다와 물가를 나눈다
+SEA_CODES = {"NA020500", "NA020600", "NA020700", "NA020800", "NA020900"}  # 섬·염전·항구·해안절경·해변
+# 소분류 이름을 그대로 자르면 어색한 것('타워 / 전망대' → #타워, '기타역사유적지')만 고쳐 쓴다. 빈 문자열이면 태그를 달지 않는다
+TAG_NAMES = {
+    "VE010200": "전망대", "VE010900": "건축물", "VE120300": "문화시설", "NA010100": "산", "NA030200": "희귀동식물",
+    "NA030500": "자연생태", "NA040700": "수목원", "NA050100": "", "HS010200": "성곽", "HS011200": "역사유적",
+    "HS020100": "기념탑", "HS020400": "역사유물", "HS030400": "종교성지", "HS040400": "안보관광", "EX020400": "공예체험",
+    "EX050600": "웰니스", "EX050800": "의료관광", "EX060300": "향토산업", "EX060500": "산업관광", "EX060600": "산업관광",
+    "EX060700": "산업관광", "EX060800": "먹거리", "EX060900": "신재생에너지", "EX061000": "산업관광", "EX070200": "체험관광",
+    "LS011900": "레저", "LS021400": "수상레저", "LS030300": "패러글라이딩", "LS030500": "드론", "LS030600": "항공레저",
+    "SH050300": "특산물", "SH070100": "쇼핑",
+}
+# 동네 공원(소공원·어린이공원·근린공원)은 여행 이유가 되기 어려워 화면의 대표 사진으로는 쓰지 않는다 (추천 계산에는 그대로)
+LOCAL_PARK_CODES = {"VE030200", "VE030300", "VE030400"}
+KOGL = {"Type1": "공공누리 제1유형 (출처표시)", "Type3": "공공누리 제3유형 (출처표시·변경금지)"}
+CACHE_SIZE = 200
+
+
+def _database_index(records):
+    """Build the existing CLIP index shape from PostgreSQL catalog rows."""
+    eligible = {row["contentid"]: row for row in records
+                if row.get("firstimage2") and row.get("cpyrhtDivCd") in ("Type1", "Type3")}
+    kr = np.load(cp.WORK / "emb_kr.npz")
+    region_idx = defaultdict(list)
+    for index, content_id in enumerate(kr["names"]):
+        row = eligible.get(str(content_id))
+        if row and row["region_code"]:
+            region_idx[(row["region_code"], row["region_name"])].append(index)
+    regions = sorted(region_idx)
+    img_region = np.full(len(kr["vecs"]), -1)
+    for region, indexes in region_idx.items():
+        img_region[indexes] = regions.index(region)
+    reg_mean = np.stack([kr["vecs"][region_idx[region]].mean(0) for region in regions])
+    reg_mean /= np.linalg.norm(reg_mean, axis=1, keepdims=True)
+    names = {(row["region_code"], row["region_name"]): f'{row["sido"]} {row["region_name"]}'
+             for row in records if row["region_code"]}
+    points = defaultdict(list)
+    for row in records:
+        if row["region_code"] and row["mapy"] is not None and row["mapx"] is not None:
+            points[(row["region_code"], row["region_name"])].append((row["mapy"], row["mapx"]))
+    centers = {key: (round(statistics.median(lat for lat, _ in values), 4),
+                     round(statistics.median(lon for _, lon in values), 4)) for key, values in points.items()}
+    return ({"kv": kr["vecs"], "cid": kr["names"], "items": eligible, "regions": regions,
+             "rpos": {region: i for i, region in enumerate(regions)}, "img_region": img_region,
+             "name": names, "reg_mean": reg_mean}, centers)
+
+
+class Engine:
+    def __init__(self, catalog_records=None):
+        import torch
+        from transformers import CLIPModel, CLIPProcessor
+        torch.set_num_threads(8)
+        self.model = CLIPModel.from_pretrained(cp.MODEL_NAME).eval()
+        self.proc = CLIPProcessor.from_pretrained(cp.MODEL_NAME)
+        self.I, centers = _database_index(catalog_records) if catalog_records is not None else (sc.domestic_index(), None)
+        self.cid = np.array([str(c) for c in self.I["cid"]])
+        self.ok = self.I["img_region"] >= 0
+        self.region_keys = [f"{r[0]}_{r[1]}" for r in self.I["regions"]]
+        self.region_index = {k: i for i, k in enumerate(self.region_keys)}
+        self.ctx = Context([(r[0], r[1]) for r in self.I["regions"]], centers)
+        self.tagger = Tagger(self.model, self.proc)
+        self.cache = QueryCache(CACHE_SIZE)
+        self._demo = None
+
+    # ---------------- 입력
+    def embed(self, img):
+        import torch
+        with torch.no_grad():
+            f = self.model.get_image_features(**self.proc(images=[img.convert("RGB")], return_tensors="pt"))
+            f = f if isinstance(f, torch.Tensor) else f.pooler_output
+        return torch.nn.functional.normalize(f, dim=-1).numpy()[0]
+
+    def embed_text(self, text):
+        """CLIP 공통 공간에서 자연어 풍경 설명을 국내 관광 사진과 비교한다."""
+        import torch
+        with torch.no_grad():
+            f = self.model.get_text_features(**self.proc(text=[text], return_tensors="pt", padding=True))
+            f = f if isinstance(f, torch.Tensor) else f.pooler_output
+        return torch.nn.functional.normalize(f, dim=-1).numpy()[0]
+
+    @staticmethod
+    def open_image(data, crop=None):
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))  # 휴대폰 사진 회전 반영
+        img = img.convert("RGB")
+        w, h = img.size
+        cropped = False
+        if crop:
+            x, y, cw, ch = (int(round(crop[k])) for k in ("x", "y", "w", "h"))
+            x, y = max(0, x), max(0, y)
+            cw, ch = min(cw, w - x), min(ch, h - y)
+            if cw >= 16 and ch >= 16:  # 너무 작은 영역은 무시하고 전체를 쓴다
+                img, cropped = img.crop((x, y, x + cw, y + ch)), True
+        return img, {"width": w, "height": h, "cropped": cropped}
+
+    def region_of(self, cid):
+        """관광지가 속한 시군구 인덱스 (사진 인덱스에 없으면 None)."""
+        ix = np.where((self.cid == str(cid)) & self.ok)[0]
+        return int(self.I["img_region"][ix[0]]) if len(ix) else None
+
+    def analyze(self, img, exclude_ri=None, photo_key=None):
+        """exclude_ri: 국내 사진으로 다시 찾을 때 그 사진의 시군구. 자기 자신이 1위로 나오지 않게 후보에서 뺀다.
+        photo_key: 같은 사진을 알아보는 값 (사진별 반응을 모으는 데 쓴다, main.analyze)."""
+        v = self.embed(img)
+        qid = uuid.uuid4().hex[:12]
+        allowed = None if exclude_ri is None else set(range(len(self.I["regions"]))) - {exclude_ri}
+        self.cache[qid] = {"vec": v, "tags": self.tagger.top(v), "stage_a": self.stage_a(v, allowed), "exclude": exclude_ri,
+                           "photo_key": photo_key}
+        while len(self.cache) > CACHE_SIZE:
+            self.cache.popitem(last=False)
+        return qid, self.cache[qid]["tags"]
+
+    def analyze_text(self, text):
+        """영문 풍경 설명으로 사진 검색과 같은 추천 캐시를 만든다."""
+        v = self.embed_text(text)
+        qid = uuid.uuid4().hex[:12]
+        self.cache[qid] = {"vec": v, "tags": self.tagger.top(v), "stage_a": self.stage_a(v), "exclude": None}
+        while len(self.cache) > CACHE_SIZE:
+            self.cache.popitem(last=False)
+        return qid, self.cache[qid]["tags"]
+
+    # ---------------- Stage A
+    def stage_a(self, v, allowed=None):
+        """allowed: 조건 필터를 통과한 시군구 인덱스 집합 (None 이면 전체). 필터는 후보를 고르기 전에 건다."""
+        sims = self.I["kv"] @ v
+        ok = self.ok if allowed is None else self.ok & np.isin(self.I["img_region"], list(allowed))
+        idx = np.where(ok)[0]
+        if not len(idx):
+            return []
+        # 관광지 단위 통합: 유사도 내림차순으로 놓고 관광지마다 처음 나온 사진(= 최고 1장)만 남긴다
+        o = idx[np.argsort(-sims[idx], kind="stable")]
+        _, first = np.unique(self.cid[o], return_index=True)
+        best_img = o[first]                       # 관광지당 대표 사진 1장
+        best = sims[best_img]
+        reg = self.I["img_region"][best_img]
+        top = np.argsort(-best, kind="stable")[:VOTE_K]
+        vote = np.bincount(reg[top], weights=best[top], minlength=len(self.I["regions"]))
+        vote = vote + 1e-3 * (self.I["reg_mean"] @ v)  # 표 없는 시군구 순서 (기존 vote100 과 같은 처리)
+        if allowed is not None:
+            vote[[i for i in range(len(vote)) if i not in allowed]] = -np.inf
+        n = N_CAND if allowed is None else min(N_CAND, len(allowed))
+        out = []
+        for ri in np.argsort(-vote, kind="stable")[:n]:
+            in_reg = np.where(reg == ri)[0]
+            if not len(in_reg):  # 필터 안의 시군구 중 사진이 덜 닮아 상위 관광지가 없는 곳
+                continue
+            a = in_reg[np.argmax(best[in_reg])]  # 이 시군구에서 가장 닮은 관광지
+            out.append({"ri": int(ri), "visual_rank": len(out) + 1, "vote": float(vote[ri]),
+                        "img_index": int(best_img[a]), "similarity": float(best[a])})
+        return out
+
+    # ---------------- Stage B
+    def stage_b(self, cands, month, priority, origin):
+        n = len(cands)
+        keys = [tuple(self.region_keys[c["ri"]].split("_", 1)) for c in cands]
+        if priority == "crowd":
+            # 월이 있으면 그 달 혼잡도(평소 대비), 없으면 월평균 외지인 방문자 수가 적은 쪽
+            vals = [None if (cg := self.ctx.congestion(k, month)) is None else -(cg["index"] if month else cg["visitors"]) for k in keys]
+        elif priority == "near":
+            vals = [None if (d := self.ctx.distance(k, origin or "서울")) is None else -d for k in keys]
+        elif priority == "season":
+            vals = [None if (cl := self.ctx.climate(k, month)) is None else cl["comfort"] for k in keys]
+        else:
+            vals = [None] * n
+        ok = [x for x in vals if x is not None]
+
+        def pct(x):  # 후보 30곳 안 백분위 (높을수록 좋음), 결측은 0.5
+            if x is None or len(ok) < 2:
+                return 0.5
+            return (sum(y < x for y in ok) + 0.5 * (sum(y == x for y in ok) - 1)) / (len(ok) - 1)
+        scored = []
+        for c, x in zip(cands, vals):
+            vis = 1 - (c["visual_rank"] - 1) / max(n - 1, 1)
+            if priority == "visual":
+                score, cond = vis, None
+            else:
+                cond = pct(x)
+                score = VISUAL_WEIGHT * vis + (1 - VISUAL_WEIGHT) * cond
+            scored.append((score, -c["visual_rank"], c, vis, cond, x))
+        scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return [{**c, "visual_component": round(vis, 3), "condition_component": None if cond is None else round(cond, 3),
+                 "condition_value": x} for _, _, c, vis, cond, x in scored]
+
+    # ---------------- 개인 맞춤 재정렬 (로그인 사용자만)
+    def _attraction_vec(self, cid):
+        """관광지 사진 임베딩 평균 (정규화). 사진 인덱스에 없으면 None."""
+        ix = np.where((self.cid == str(cid)) & self.ok)[0]
+        if not len(ix):
+            return None
+        v = self.I["kv"][ix].mean(0)
+        return v / np.linalg.norm(v)
+
+    def taste(self, likes, dislikes, saved):
+        """취향 벡터 u = normalize(Σ 좋아요 − 0.5·Σ 별로예요). 좋아요에는 하트 누른 시군구의 대표 사진도 넣는다.
+        likes·dislikes: 관광지 contentid, saved: 시군구 key. 신호가 PERSONAL_MIN 개 미만이면 None."""
+        refs, neg = [], []
+        for cid in likes:
+            if (v := self._attraction_vec(cid)) is not None:
+                refs.append((f"좋아요한 '{self.I['items'][str(cid)]['title']}'", v))
+        for key in saved:
+            ri = self.region_index.get(key)
+            rep = None if ri is None else self.region_photo(ri)
+            if rep and (v := self._attraction_vec(rep["attraction_id"])) is not None:
+                refs.append((f"저장한 '{key.split('_', 1)[1]}'", v))
+        for cid in dislikes:
+            if (v := self._attraction_vec(cid)) is not None:
+                neg.append(v)
+        if len(refs) + len(neg) < PERSONAL_MIN or not refs:
+            return None
+        u = sum(v for _, v in refs) - 0.5 * sum(neg, np.zeros_like(refs[0][1]))
+        n = np.linalg.norm(u)
+        return None if n == 0 else {"u": u / n, "refs": refs, "signals": len(refs) + len(neg)}
+
+    def personalize(self, ranked, taste):
+        """후보 안에서만 순서를 바꾼다: 점수 = (1−w)·지금 순위 백분위 + w·취향 유사도 백분위."""
+        n = len(ranked)
+        if taste is None or n < 2:
+            return [{**c, "personal_component": None, "personal_reason": None} for c in ranked]
+        vecs = self.I["kv"][[c["img_index"] for c in ranked]]
+        sim = vecs @ taste["u"]
+        pref = np.argsort(np.argsort(sim)) / (n - 1)   # 0 = 가장 덜 맞음, 1 = 가장 잘 맞음
+        scored = sorted(range(n), key=lambda i: (-((1 - PERSONAL_WEIGHT) * (1 - i / (n - 1)) + PERSONAL_WEIGHT * pref[i]), i))
+        out = []
+        for new, i in enumerate(scored):
+            reason = None
+            if new < i:  # 순위가 오른 후보: 가장 닮은 좋아요·저장 사진을 이유로 보여 준다
+                label = max(taste["refs"], key=lambda r: float(r[1] @ vecs[i]))[0]
+                reason = f"{label} 사진과 비슷"
+            out.append({**ranked[i], "personal_component": round(float(pref[i]), 3), "personal_reason": reason})
+        return out
+
+    def community(self, ranked, votes):
+        """같은 사진에 다른 사용자들이 누른 닮았어요·별로예요로 후보 안 순서를 조금 바꾼다 (모델 재학습 없음).
+        votes: {관광지 contentid: (닮았어요 수, 별로예요 수)}. 점수 = 지금 순위 백분위 + w·(닮았어요−별로예요)/(전체+PRIOR).
+        표가 적으면 PRIOR 때문에 거의 안 움직이고, 한 후보는 최대 w·(n−1) 계단(30곳이면 약 7계단)까지만 움직인다."""
+        n = len(ranked)
+        if not votes or n < 2:
+            return [{**c, "feedback": None} for c in ranked]
+        tally = [votes.get(self.cid[c["img_index"]], (0, 0)) for c in ranked]
+        net = [(up - down) / (up + down + FEEDBACK_PRIOR) for up, down in tally]
+        order = sorted(range(n), key=lambda i: (-((1 - i / (n - 1)) + FEEDBACK_WEIGHT * net[i]), i))
+        return [{**ranked[i], "feedback": {"up": tally[i][0], "down": tally[i][1], "component": round(net[i], 3)}
+                 if sum(tally[i]) else None} for i in order]
+
+    def similar_regions(self, taste, exclude=(), k=10):
+        """홈 '저장한 곳과 닮은 곳': 시군구 대표 사진(홈 피드에 보이는 사진)이 취향 벡터와 가장 닮은 순.
+        exclude(이미 저장한 시군구)는 뺀다. [(시군구 key, 이유 문장)]"""
+        if not hasattr(self, "_rep_vecs"):
+            d = self.I["kv"].shape[1]
+            vecs = []
+            for ri in range(len(self.region_keys)):
+                rep = self.region_photo(ri)
+                v = None if rep is None else self._attraction_vec(rep["attraction_id"])
+                vecs.append(np.zeros(d, dtype=self.I["kv"].dtype) if v is None else v)
+            self._rep_vecs = np.stack(vecs)
+        sims = self._rep_vecs @ taste["u"]
+        out = []
+        for ri in np.argsort(-sims, kind="stable"):
+            key = self.region_keys[ri]
+            if key in exclude or sims[ri] == 0:
+                continue
+            label = max(taste["refs"], key=lambda r: float(r[1] @ self._rep_vecs[ri]))[0]
+            out.append((key, f"{label} 사진과 비슷"))
+            if len(out) == k:
+                break
+        return out
+
+    # ---------------- 응답 조립
+    def recommend(self, qid, month, priority, origin, kept_tags, limit, offset, allowed=None, taste=None, votes=None):
+        q = self.cache[qid]
+        cands = q["stage_a"] if allowed is None else self.stage_a(q["vec"], allowed)
+        if not cands:
+            return {"total": 0, "candidates": []}
+        ranked = self.personalize(self.community(self.stage_b(cands, month, priority, origin), votes), taste)
+        out = []
+        for rank, c in enumerate(ranked[offset:offset + limit], offset + 1):
+            sido, sgg = self.region_keys[c["ri"]].split("_", 1)
+            key = (sido, sgg)
+            it = self.I["items"][self.cid[c["img_index"]]]
+            similar, different = self.tagger.compare(q["vec"], self.I["kv"][c["img_index"]], kept_tags)
+            lat, lon = _float(it.get("mapy")), _float(it.get("mapx"))
+            out.append({
+                "rank": rank, "visual_rank": c["visual_rank"],
+                "sigungu": {"key": f"{sido}_{sgg}", "name": sgg, "sido": self.I["name"][self.I["regions"][c["ri"]]].rsplit(" ", 1)[0]},
+                "attraction": {"id": it["contentid"], "name": it["title"], "address": it.get("addr1") or None,
+                               "latitude": lat, "longitude": lon, "image_url": f"/images/kr/{it['contentid']}",
+                               "license": KOGL.get(it["cpyrhtDivCd"], it["cpyrhtDivCd"]),
+                               "source": "한국관광공사 TourAPI"},
+                "visual": {"similarity": round(c["similarity"], 4), "vote": round(c["vote"], 3)},
+                "similar_tags": similar, "different_tags": different,
+                "congestion": self.ctx.congestion(key, month),
+                "climate": self.ctx.climate(key, month),
+                "distance_km": self.ctx.distance(key, origin) if origin else None,
+                "map_links": _map_links(it["title"], lat, lon),
+                "rerank": {"visual_component": c["visual_component"], "condition_component": c["condition_component"],
+                           "condition_value": c["condition_value"],
+                           "personal_component": c["personal_component"], "personal_reason": c["personal_reason"],
+                           "feedback": c["feedback"]},
+            })
+        return {"total": len(ranked), "candidates": out}
+
+    # ---------------- 시군구 대표 사진 (그 시군구 사진 평균에 가장 가까운 관광지 = 가장 그 지역다운 사진)
+    # 분류 칩(바다·산숲)을 골랐을 때 그 분류에 맞는 관광지 사진을 보여 주기 위한 조건 (관광지 분류 코드 기준)
+    PHOTO_KINDS = {"sea": lambda it: it.get("lclsSystm3") in SEA_CODES,
+                   "mountain": lambda it: it.get("lclsSystm2") in ("NA01", "NA04")}
+    # 도시 칩은 분류 코드로는 공원이 대부분이라, 사진이 도심처럼 보이는 정도(CLIP 장면 태그 확률 합)로 고른다
+    URBAN_TAGS = ("고층 빌딩", "번화가·네온", "시장·먹거리 골목", "오래된 골목길", "야경")
+    URBAN_MIN = 0.4  # 이보다 도심답지 않으면 도시 칩에 넣지 않는다 (시군구 230곳 중 151곳 통과, 2026-10-08)
+    KINDS = (*PHOTO_KINDS, "city")
+
+    def urban_score(self):
+        """관광지 사진마다 도심 장면 태그 확률의 합 (0~1)."""
+        if not hasattr(self, "_urban"):
+            z = 100 * (self.I["kv"] @ self.tagger.text.T)
+            z = np.exp(z - z.max(1, keepdims=True))
+            cols = [self.tagger.labels.index(t) for t in self.URBAN_TAGS]
+            self._urban = (z[:, cols].sum(1) / z.sum(1))
+        return self._urban
+
+    def region_photo(self, ri, kind=None):
+        """시군구 대표 사진: 그 시군구 사진 중 시군구 평균과 가장 닮은 사진.
+        kind가 sea·mountain이면 그 분류 관광지 사진 중에서, city면 가장 도심다운 사진(URBAN_MIN 이상)을 고른다. 없으면 None."""
+        if not hasattr(self, "_rep"):
+            self._rep = {}
+            sims = self.I["kv"] @ self.I["reg_mean"].T
+            # 임베딩은 있어도 DB 에서 사진·라이선스가 빠진 관광지는 items 에 없다 (self.ok 가 거짓이라 어차피 고르지 않는다)
+            items = [self.I["items"].get(c, {}) for c in self.cid]
+            shown = self.ok & np.array([it.get("lclsSystm3") not in LOCAL_PARK_CODES for it in items])
+            masks = {None: shown, **{k: shown & np.array([f(it) for it in items]) for k, f in self.PHOTO_KINDS.items()}}
+            for kd, m in masks.items():
+                for i in range(len(self.I["regions"])):
+                    ix = np.where((self.I["img_region"] == i) & m)[0]
+                    if len(ix):
+                        self._rep[kd, i] = int(ix[np.argmax(sims[ix, i])])
+            u = self.urban_score()
+            for i in range(len(self.I["regions"])):
+                ix = np.where((self.I["img_region"] == i) & shown)[0]
+                if len(ix) and u[ix].max() >= self.URBAN_MIN:
+                    self._rep["city", i] = int(ix[np.argmax(u[ix])])
+        k = self._rep.get((kind, ri))
+        if k is None:
+            return None
+        it = self.I["items"][self.cid[k]]
+        return {"attraction_id": it["contentid"], "name": it["title"], "image_url": f"/images/kr/{it['contentid']}",
+                "license": KOGL.get(it["cpyrhtDivCd"], it["cpyrhtDivCd"]), "tags": self.photo_tags(it)}
+
+    def photo_tags(self, it):
+        """사진 속 관광지 자체의 분류로 만든 해시태그 (시군구 전체 특징이 아님). 해변 → #바다 #해변, 저수지 → #강호수 #저수지."""
+        if not hasattr(self, "_lcls"):
+            from .activities import _names
+            self._lcls = _names()
+        n2, n3 = self._lcls.get(it.get("lclsSystm2", ""), ""), self._lcls.get(it.get("lclsSystm3", ""), "")
+        c2, c3 = it.get("lclsSystm2", ""), it.get("lclsSystm3", "")
+        tags = []
+        if c3 in SEA_CODES:
+            tags.append("#바다")
+        elif c2 == "NA02":
+            tags.append("#강호수")
+        elif c2 in ("NA01", "NA04"):
+            tags.append("#산숲")
+        word = TAG_NAMES[c3] if c3 in TAG_NAMES else re.split(r"[.,·ㆍ/()]", n3 or n2)[0].strip().replace(" ", "")
+        if word and f"#{word}" not in tags:
+            tags.append(f"#{word}")
+        return tags
+
+    # ---------------- 데모 사진 (카탈로그 장면당 첫 사진)
+    def demo_photos(self):
+        if self._demo is None:
+            import pandas as pd
+            rows = sc.ok_rows()
+            places = pd.read_csv(sc.PLACES_CSV).set_index("place_id")
+            first = rows.sort_values("photo_rank").drop_duplicates("scene_id")
+            self._demo = [{"photo_id": r.file, "place_name": places.loc[r.place_id, "name_ko"], "scene_label": r.scene_label_ko,
+                           **_country(places.loc[r.place_id, "country_code"]),
+                           "image_url": f"/images/overseas/{r.file}", "artist": str(r.artist), "license": str(r.license),
+                           "license_url": str(r.license_url), "source_page": str(r.commons_page)}
+                          for r in first.itertuples()]
+        return self._demo
+
+
+# 해외 장소표(overseas_places)의 국가 코드 → 화면 이름·대륙 (탐색 탭의 대륙 칩·사진 이름표)
+COUNTRY = {
+    "JP": ("일본", "아시아"), "CN": ("중국", "아시아"), "TW": ("대만", "아시아"), "HK": ("홍콩", "아시아"), "MO": ("마카오", "아시아"),
+    "MN": ("몽골", "아시아"), "VN": ("베트남", "아시아"), "TH": ("태국", "아시아"), "PH": ("필리핀", "아시아"), "MY": ("말레이시아", "아시아"),
+    "SG": ("싱가포르", "아시아"), "ID": ("인도네시아", "아시아"), "KH": ("캄보디아", "아시아"), "LA": ("라오스", "아시아"), "NP": ("네팔", "아시아"),
+    "MV": ("몰디브", "아시아"), "AE": ("아랍에미리트", "아시아"),
+    "FR": ("프랑스", "유럽"), "IT": ("이탈리아", "유럽"), "GB": ("영국", "유럽"), "ES": ("스페인", "유럽"), "PT": ("포르투갈", "유럽"),
+    "CH": ("스위스", "유럽"), "AT": ("오스트리아", "유럽"), "BE": ("벨기에", "유럽"), "CZ": ("체코", "유럽"), "HU": ("헝가리", "유럽"),
+    "HR": ("크로아티아", "유럽"), "SI": ("슬로베니아", "유럽"), "GR": ("그리스", "유럽"), "NO": ("노르웨이", "유럽"), "IS": ("아이슬란드", "유럽"),
+    "TR": ("튀르키예", "유럽"),
+    "US": ("미국", "아메리카"), "CA": ("캐나다", "아메리카"), "MX": ("멕시코", "아메리카"), "PE": ("페루", "아메리카"),
+    "BO": ("볼리비아", "아메리카"), "CL": ("칠레", "아메리카"), "EC": ("에콰도르", "아메리카"),
+    "AU": ("호주", "오세아니아"), "NZ": ("뉴질랜드", "오세아니아"), "GU": ("괌", "오세아니아"), "MP": ("사이판", "오세아니아"),
+    "EG": ("이집트", "아프리카"), "MA": ("모로코", "아프리카"), "TZ": ("탄자니아", "아프리카"),
+}
+
+
+def _country(code):
+    name, continent = COUNTRY.get(str(code), (str(code), "기타"))
+    return {"country_code": str(code), "country": name, "continent": continent}
+
+
+def _float(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _map_links(name, lat, lon):
+    from urllib.parse import quote
+    if lat is None or lon is None:
+        return {"kakao": None, "naver": None}
+    return {"kakao": f"https://map.kakao.com/link/map/{quote(name)},{lat},{lon}",
+            "naver": f"https://map.naver.com/v5/search/{quote(name)}"}

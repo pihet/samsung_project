@@ -1,0 +1,12 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+**/__pycache__
+data
+references
+web/node_modules
+web/dist
+tools/record_deck/node_modules
+*.log
+.env
