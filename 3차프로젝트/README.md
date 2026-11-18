@@ -96,6 +96,14 @@
 
 `soften_test.py`로 화난 연기 녹음(10초 안팎 3~4개, wav)을 두 단계로 보정해 들어봅니다.
 
+```bash
+cd 3차프로젝트
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python soften_test.py 녹음.wav
+```
+
+녹음 파일(wav, m4a)은 개인 음성이라 `.gitignore`로 커밋에서 제외합니다.
+
 - `*_soft1.wav`: 크기 압축 + 거친 고음 깎기 (실시간 처리가 쉬운 방식)
 - `*_soft2.wav`: soft1 + 억양 폭 절반 + 음높이 8% 낮추기
 - 들을 때: 보정본이 작게 들려 "조용해졌다"와 "차분해졌다"가 헷갈리므로 볼륨을 맞추고 비교. 팀원 2~3명에게 순서를 섞어 들려주기
